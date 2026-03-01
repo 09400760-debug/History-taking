@@ -42,6 +42,12 @@ if prompt := st.chat_input("Type your response…"):
     )
 
     assistant_text = response.output_text
+    # Reset button
+if st.button("Reset conversation"):
+    st.session_state.messages = [
+        {"role": "assistant", "content": "Hi! Tell me the patient’s age and the main complaint."}
+    ]
+    st.rerun()
 
     st.session_state.messages.append({"role": "assistant", "content": assistant_text})
 
