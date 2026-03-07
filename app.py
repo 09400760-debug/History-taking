@@ -28,7 +28,7 @@ for m in st.session_state.messages:
         st.write(m["content"])
 
 # New user input
-selected_age = st.selectbox(“Choose age group”, [“Infant”, “1–5 years”, “6–10 years”, “11–19 years”])
+selected_age = st.selectbox("Choose age group", ["1-5 years", "6-10 years", "11-19 years"])
 if prompt := st.chat_input("Type your response…"):
     st.session_state.messages.append({"role": "user", "content": prompt})
 
