@@ -19,7 +19,7 @@ Ask one question at a time, keep it practical, and give brief feedback.
 
 if "messages" not in st.session_state:
     st.session_state.messages = [
-        {"role": "assistant", "content": "Hi! Tell me the patient’s age and the main complaint."}
+        {"role": "assistant", "content": "Hello! Select the patient’s age and the system you would like."}
     ]
 
 # Display chat so far
