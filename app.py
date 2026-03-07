@@ -1,5 +1,5 @@
 import re
-import hashlib
+import urllib.parse
 import streamlit as st
 from openai import OpenAI
 
@@ -9,14 +9,11 @@ st.title("🩺 History-taking practice bot")
 # =========================================================
 # VERSION CONTROL
 # =========================================================
-APP_VERSION = "v4.0-voice-enabled"
+APP_VERSION = "v3.1-streamlit-with-voice-handoff"
 RUBRIC_VERSION = "Wits Paeds Rubric Version 11 Sept 2024"
 SCORING_PROMPT_VERSION = "strict-v2"
 CAREGIVER_PROMPT_VERSION = "sa-realism-v2"
 MODEL_NAME = "gpt-4.1-mini"
-TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe"
-TTS_MODEL = "gpt-4o-mini-tts"
-TTS_VOICE = "coral"
 
 # -----------------------------
 # API setup
@@ -464,32 +461,6 @@ def generate_case_bundle(age_group: str, system: str):
 
     return case_summary, opening_line
 
-def text_to_speech(text: str):
-    try:
-        speech = client.audio.speech.create(
-            model=TTS_MODEL,
-            voice=TTS_VOICE,
-            input=text[:4096],
-            instructions="Speak clearly, warmly, and naturally as a South African caregiver or paediatric preceptor where appropriate.",
-            response_format="mp3",
-        )
-        return speech.read()
-    except Exception:
-        return None
-
-def transcribe_uploaded_audio(audio_file):
-    try:
-        audio_file.seek(0)
-    except Exception:
-        pass
-
-    transcript = client.audio.transcriptions.create(
-        model=TRANSCRIBE_MODEL,
-        file=audio_file,
-    )
-
-    return transcript.text.strip()
-
 def initialize_case(age_group: str, system: str):
     case_summary, opening_line = generate_case_bundle(age_group, system)
     st.session_state.case_summary = case_summary
@@ -502,7 +473,6 @@ def initialize_case(age_group: str, system: str):
     st.session_state.presentation_done = False
     st.session_state.feedback_generated = None
     st.session_state.score_generated = None
-    st.session_state.last_audio_bytes = text_to_speech(opening_line)
 
 def clear_case():
     st.session_state.locked_age = None
@@ -515,8 +485,6 @@ def clear_case():
     st.session_state.presentation_done = False
     st.session_state.feedback_generated = None
     st.session_state.score_generated = None
-    st.session_state.last_audio_bytes = None
-    st.session_state.last_audio_hash = None
 
 def selection_changed():
     if st.session_state.case_started:
@@ -550,54 +518,6 @@ def call_scoring(age_for_case, system_for_case):
     )
     return response.output_text
 
-def process_user_message(prompt, age_for_case, system_for_case):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-
-    assistant_text = ""
-
-    if st.session_state.mode == "simulation":
-        if looks_like_finished(prompt):
-            st.session_state.mode = "offer_preceptor"
-            assistant_text = "Would you like to move to preceptor mode?"
-        else:
-            instructions = CAREGIVER_INSTRUCTIONS_TEMPLATE.format(
-                age_group=age_for_case,
-                system=system_for_case,
-                case_summary=st.session_state.case_summary
-            )
-
-            response = client.responses.create(
-                model=MODEL_NAME,
-                instructions=instructions,
-                input=st.session_state.messages,
-            )
-            assistant_text = response.output_text
-
-            if "Would you like to move to preceptor mode?" in assistant_text:
-                st.session_state.mode = "offer_preceptor"
-
-    elif st.session_state.mode == "offer_preceptor":
-        if looks_like_yes(prompt):
-            st.session_state.mode = "wait_for_presentation"
-            assistant_text = PRECEPTOR_PROMPT
-        elif looks_like_no(prompt):
-            st.session_state.mode = "simulation"
-            assistant_text = "Alright. I will stay in character as the caregiver/patient. Please continue your history."
-        else:
-            assistant_text = "Please say yes if you want to move to preceptor mode, or no if you want to continue the history."
-
-    elif st.session_state.mode == "wait_for_presentation":
-        st.session_state.mode = "post_presentation"
-        st.session_state.presentation_done = True
-        assistant_text = (
-            "Thank you. You can now choose one of the options below:\n\n"
-            "- Give me Feedback\n"
-            "- Score my Performance"
-        )
-
-    st.session_state.messages.append({"role": "assistant", "content": assistant_text})
-    st.session_state.last_audio_bytes = text_to_speech(assistant_text)
-
 # -----------------------------
 # Session state
 # -----------------------------
@@ -625,10 +545,6 @@ if "selected_age" not in st.session_state:
     st.session_state.selected_age = "Select age group"
 if "selected_system" not in st.session_state:
     st.session_state.selected_system = "Select system"
-if "last_audio_bytes" not in st.session_state:
-    st.session_state.last_audio_bytes = None
-if "last_audio_hash" not in st.session_state:
-    st.session_state.last_audio_hash = None
 
 # -----------------------------
 # UI selections
@@ -697,8 +613,8 @@ system_for_case = st.session_state.locked_system
 # Status
 # -----------------------------
 st.caption(
-    f"App {APP_VERSION} | Model {MODEL_NAME} | STT {TRANSCRIBE_MODEL} | TTS {TTS_MODEL}/{TTS_VOICE} | "
-    f"Rubric {RUBRIC_VERSION} | Scoring prompt {SCORING_PROMPT_VERSION} | Caregiver prompt {CAREGIVER_PROMPT_VERSION}"
+    f"App {APP_VERSION} | Model {MODEL_NAME} | Rubric {RUBRIC_VERSION} | "
+    f"Scoring prompt {SCORING_PROMPT_VERSION} | Caregiver prompt {CAREGIVER_PROMPT_VERSION}"
 )
 
 if not st.session_state.case_started:
@@ -708,11 +624,18 @@ else:
         f"Case context: {age_for_case} | {system_for_case} | Mode: {st.session_state.mode}"
     )
 
-# -----------------------------
-# Latest assistant audio
-# -----------------------------
-if st.session_state.last_audio_bytes:
-    st.audio(st.session_state.last_audio_bytes, format="audio/mp3", autoplay=True)
+    voice_url = (
+        "http://localhost:8000/?"
+        + urllib.parse.urlencode({
+            "age_group": st.session_state.locked_age,
+            "system": st.session_state.locked_system,
+            "case_summary": st.session_state.case_summary,
+            "opening_line": st.session_state.opening_line,
+        })
+    )
+
+    st.markdown("### Live voice mode")
+    st.link_button("Open realtime voice case", voice_url)
 
 # -----------------------------
 # Display chat
@@ -722,44 +645,61 @@ for m in st.session_state.messages:
         st.write(m["content"])
 
 # -----------------------------
-# Text input
+# Chat input
 # -----------------------------
 if st.session_state.case_started and not st.session_state.presentation_done:
-    text_prompt = st.chat_input("Type your response…")
+    if prompt := st.chat_input("Type your response…"):
+        st.session_state.messages.append({"role": "user", "content": prompt})
 
-    if text_prompt:
-        process_user_message(text_prompt, age_for_case, system_for_case)
-        st.rerun()
+        with st.chat_message("user"):
+            st.write(prompt)
 
-# -----------------------------
-# Voice input
-# -----------------------------
-if st.session_state.case_started and not st.session_state.presentation_done:
-    st.markdown("### Voice input")
-    st.caption("Record your question or presentation, then wait for it to upload and be transcribed.")
+        assistant_text = ""
 
-    voice_clip = st.audio_input(
-        "Record your voice",
-        sample_rate=16000,
-        disabled=not st.session_state.case_started
-    )
-
-    if voice_clip is not None:
-        audio_bytes = voice_clip.getvalue()
-        audio_hash = hashlib.md5(audio_bytes).hexdigest()
-
-        if audio_hash != st.session_state.last_audio_hash:
-            st.session_state.last_audio_hash = audio_hash
-
-            with st.spinner("Transcribing your recording..."):
-                transcript_text = transcribe_uploaded_audio(voice_clip)
-
-            if transcript_text:
-                st.info(f"Transcribed: {transcript_text}")
-                process_user_message(transcript_text, age_for_case, system_for_case)
-                st.rerun()
+        if st.session_state.mode == "simulation":
+            if looks_like_finished(prompt):
+                st.session_state.mode = "offer_preceptor"
+                assistant_text = "Would you like to move to preceptor mode?"
             else:
-                st.warning("I couldn't transcribe that recording clearly. Please try again.")
+                instructions = CAREGIVER_INSTRUCTIONS_TEMPLATE.format(
+                    age_group=age_for_case,
+                    system=system_for_case,
+                    case_summary=st.session_state.case_summary
+                )
+
+                response = client.responses.create(
+                    model=MODEL_NAME,
+                    instructions=instructions,
+                    input=st.session_state.messages,
+                )
+                assistant_text = response.output_text
+
+                if "Would you like to move to preceptor mode?" in assistant_text:
+                    st.session_state.mode = "offer_preceptor"
+
+        elif st.session_state.mode == "offer_preceptor":
+            if looks_like_yes(prompt):
+                st.session_state.mode = "wait_for_presentation"
+                assistant_text = PRECEPTOR_PROMPT
+            elif looks_like_no(prompt):
+                st.session_state.mode = "simulation"
+                assistant_text = "Alright. I will stay in character as the caregiver/patient. Please continue your history."
+            else:
+                assistant_text = "Please say yes if you want to move to preceptor mode, or no if you want to continue the history."
+
+        elif st.session_state.mode == "wait_for_presentation":
+            st.session_state.mode = "post_presentation"
+            st.session_state.presentation_done = True
+            assistant_text = (
+                "Thank you. You can now choose one of the options below:\n\n"
+                "- Give me Feedback\n"
+                "- Score my Performance"
+            )
+
+        st.session_state.messages.append({"role": "assistant", "content": assistant_text})
+
+        with st.chat_message("assistant"):
+            st.write(assistant_text)
 
 # -----------------------------
 # End-of-case buttons
@@ -774,15 +714,11 @@ if st.session_state.case_started and st.session_state.presentation_done:
         if st.button("Give me Feedback"):
             feedback_text = call_feedback(age_for_case, system_for_case)
             st.session_state.feedback_generated = feedback_text
-            st.session_state.last_audio_bytes = text_to_speech("Your feedback report is now displayed on screen.")
-            st.rerun()
 
     with col4:
         if st.button("Score my Performance"):
             score_text = call_scoring(age_for_case, system_for_case)
             st.session_state.score_generated = score_text
-            st.session_state.last_audio_bytes = text_to_speech("Your marking report is now displayed on screen.")
-            st.rerun()
 
     if st.session_state.feedback_generated:
         st.markdown("## Feedback")
