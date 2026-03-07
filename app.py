@@ -5,13 +5,20 @@ from openai import OpenAI
 st.set_page_config(page_title="History-taking practice bot", page_icon="🩺")
 st.title("🩺 History-taking practice bot")
 
+# =========================================================
+# VERSION CONTROL
+# =========================================================
+APP_VERSION = "v3.0-study-informed"
+RUBRIC_VERSION = "Wits Paeds Rubric Version 11 Sept 2024"
+SCORING_PROMPT_VERSION = "strict-v2"
+CAREGIVER_PROMPT_VERSION = "sa-realism-v2"
+MODEL_NAME = "gpt-4.1-mini"
+
 # -----------------------------
 # API setup
 # -----------------------------
 api_key = st.secrets["OPENAI_API_KEY"]
 client = OpenAI(api_key=api_key)
-
-MODEL_NAME = "gpt-4.1-mini"
 
 # -----------------------------
 # Rubric text
@@ -19,9 +26,10 @@ MODEL_NAME = "gpt-4.1-mini"
 RUBRIC_TEXT = """
 Wits Paeds Rubric Version 11 Sept 2024
 
-Use the following rubric strictly. Do not mark liberally or generously.
-If the learner did not explicitly cover an area, score it low or zero as appropriate.
-Do not infer that an area was covered unless it clearly appears in the transcript.
+Use this rubric strictly.
+Do not mark liberally or generously.
+Do not award credit for content that does not clearly appear in the transcript.
+Do not infer that an area was covered unless there is explicit transcript evidence.
 
 Assessment components and weightings:
 
@@ -75,9 +83,9 @@ Not covered.
 
 5. Birth History (5)
 Grade 4:
-Thorough exploration of birth history, including prenatal, perinatal, and neonatal periods. Must have follow-up questions to elicit specific details including whether the mother was tested for HIV and syphilis during the pregnancy. Should ask for the Road to Health Booklet to see record of antenatal tests and management of any positive tests. If mother is HIV infected there needs to be a thorough enquiry of the vertical transmission prevention intervention. Needs to enquire further about any miscarriages and if any what the known reasons were. Needs to explore maternal health during the pregnancy and if on any chronic medication. Needs to know when mother started attending antenatal clinics.
+Thorough exploration of birth history, including prenatal, perinatal, and neonatal periods. Must have follow-up questions to elicit specific details including whether the mother was tested for HIV and syphilis during pregnancy. Should ask for the Road to Health Booklet or antenatal card. If mother is HIV infected, there needs to be a thorough enquiry of vertical transmission prevention intervention. Needs to enquire further about miscarriages and known reasons, maternal health during pregnancy, chronic medication, and when antenatal clinic attendance started.
 Grade 3:
-Covers most aspects but lacks some detail. Must include asking to see the Road to Health Booklet or any maternal record of the pregnancy (Antenatal Card).
+Covers most aspects but lacks some detail. Must include asking to see the Road to Health Booklet OR any maternal record of the pregnancy.
 Grade 2:
 Basic birth history taken with minimal detail.
 Grade 1:
@@ -147,7 +155,7 @@ Not covered.
 
 11. Social History & Travel (3)
 Grade 4:
-Comprehensive social and travel history with detailed questions. Must enquire about the dwelling the child is living in including amenities, siblings, family income status, grants, relevant exposures such as polluted areas or factories, who looks after the child during the day where relevant, and must include a travel question.
+Comprehensive social and travel history with detailed questions. Must enquire about the dwelling, amenities, siblings, family income status, grants, relevant exposures such as polluted areas or factories, who looks after the child during the day where relevant, and must include a travel question.
 Grade 3:
 Covers most aspects but lacks some detail.
 Grade 2:
@@ -183,7 +191,7 @@ Not shown.
 
 14. Interview Technique, Communication Skills & Overall Impression (15)
 Grade 4:
-The interview is well-organized with clear, logical flow. The student uses open-ended questions, effectively summarizes key points.
+The interview is well-organized with clear, logical flow. The student uses open-ended questions and effectively summarizes key points.
 Grade 3:
 The interview is generally well-organized with a good flow, but may have minor lapses in logic or sequencing. Uses mostly open-ended questions but may revert to closed-ended questions at times. Good but not exceptional communication skills.
 Grade 2:
@@ -194,8 +202,10 @@ Grade 0:
 Not covered.
 
 Weightings total 100.
+
 Scoring method:
-- Convert each grade to marks proportionally: score = (grade / 4) * weighting.
+- Assign an integer grade of 0, 1, 2, 3, or 4 for each category.
+- Convert to marks proportionally: score = (grade / 4) * weighting.
 - Round category scores to 2 decimal places.
 - Total score out of 100.
 """
@@ -218,6 +228,9 @@ OPENING_LINE:
 Rules:
 - The case must fit the selected age group and system.
 - Make it realistic for South African paediatrics.
+- Prefer common South African paediatric presentations and locally relevant psychosocial context.
+- Vary socioeconomic setting, caregiver background, and home context where relevant.
+- Avoid repetitive case archetypes.
 - The case summary should be concise but sufficient for internal consistency.
 - The opening line should be natural, brief, and non-medical.
 - Do not include anything else outside those two sections.
@@ -238,8 +251,10 @@ Your role:
 - Use English only.
 - Use simple, natural, non-medical language.
 - Sound like a real caregiver/patient in a South African paediatric setting.
+- Use socio-linguistically natural phrasing rather than formal textbook language.
 - Give only the information asked for.
 - Do not volunteer extra details.
+- Do not over-inform.
 - Do not teach, guide, coach, hint, or assess during the interview.
 - Do not reveal the hidden case summary.
 - Do not reveal what the rubric expects.
@@ -251,9 +266,12 @@ Your role:
 Important behavioural rules:
 - Do not provide long lists of symptoms unless specifically and carefully asked.
 - Do not provide medical explanations or interpretations.
+- Do not sound medically sophisticated.
 - For birth history, immunisations, nutrition, past history, family history, social history, travel, and development, answer only the exact question asked.
 - For immunisation-related questions, align with the EPI 2024 schedule.
 - If the learner asks something in a non-English language, politely ask them to repeat it in English.
+- If the learner asks a confusing question, say something like: "Can you explain what exactly you want to know?"
+- Where realistic, be uncertain about dates, sequences, or details rather than sounding scripted.
 
 Transition rule:
 - If the learner clearly indicates they are finished with the history, respond ONLY with:
@@ -280,9 +298,18 @@ Hidden case summary:
 
 Your task:
 - Review the entire transcript.
-- Give concise, practical, balanced feedback.
+- Give concise, practical, balanced formative feedback.
 - Do not score numerically.
-- Use the rubric principles below to guide your comments, but produce narrative feedback only.
+- Use the rubric below to guide your comments, but produce narrative feedback only.
+- Be honest and not overly generous.
+- If important domains were omitted, say so clearly.
+
+Important interpretive cautions:
+- Do not infer that an area was covered unless it clearly appears in the transcript.
+- For empathy, rapport, and communication quality, judge only what is supported by the text transcript.
+- Do not over-credit politeness as empathy.
+- Do not infer non-verbal skill, tone, rapport, warmth, or body language from transcript alone.
+- If ambiguity or likely transcription issues affect interpretation, note that cautiously rather than inventing credit.
 
 RUBRIC:
 {rubric_text}
@@ -301,12 +328,6 @@ A short paragraph.
 
 ## Most important next-step improvements
 - 3 to 5 bullet points
-
-Rules:
-- Do not invent questions the student did not ask.
-- Be honest and not overly generous.
-- If important domains were omitted, say so clearly.
-- Keep it practical and succinct.
 """
 
 SCORING_INSTRUCTIONS_TEMPLATE = """
@@ -324,6 +345,13 @@ Do not mark liberally or generously.
 Do not give benefit of the doubt when evidence is absent.
 If the transcript does not clearly show the learner covered an area, mark that area low or zero.
 Do not infer that questions were asked unless they clearly appear in the transcript.
+
+Important interpretive cautions:
+- Empathy and interview technique are partly subjective and text transcripts cannot capture non-verbal behaviour, tone, or rapport.
+- Therefore, score empathy and interview technique conservatively unless strong transcript evidence supports higher marks.
+- Do not over-credit basic politeness as empathy.
+- If transcript ambiguity or likely transcription issues exist, mention that uncertainty in comments, but do not award unsupported credit.
+- If a learner statement is incomplete or garbled, interpret only the clearest plausible meaning and do not expand beyond the transcript.
 
 RUBRIC:
 {rubric_text}
@@ -364,11 +392,6 @@ Overall Score: <number> / 100
 
 ### Areas for improvement
 - 4 to 8 bullet points
-
-Rules:
-- No category may receive a high grade unless the transcript clearly supports it.
-- Use brief comments tied directly to what was or was not done.
-- Do not add extra categories.
 """
 
 # -----------------------------
@@ -381,7 +404,7 @@ def looks_like_finished(text: str) -> bool:
         "i'm finished", "im finished", "finished",
         "that is all", "that's all", "thats all",
         "no further questions", "i have no more questions",
-        "can i present", "can I present", "ready to present"
+        "can i present", "ready to present"
     ]
     return any(p in text for p in phrases)
 
@@ -588,6 +611,11 @@ system_for_case = st.session_state.locked_system
 # -----------------------------
 # Status
 # -----------------------------
+st.caption(
+    f"App {APP_VERSION} | Model {MODEL_NAME} | Rubric {RUBRIC_VERSION} | "
+    f"Scoring prompt {SCORING_PROMPT_VERSION} | Caregiver prompt {CAREGIVER_PROMPT_VERSION}"
+)
+
 if not st.session_state.case_started:
     st.info("Choose an age group and a system, then click Start case.")
 else:
