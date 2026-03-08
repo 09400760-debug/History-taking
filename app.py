@@ -1,8 +1,8 @@
 import json
 import re
 import urllib.parse
-from pathlib import Path
 
+import requests
 import streamlit as st
 from openai import OpenAI
 
@@ -17,19 +17,12 @@ api_key = st.secrets["OPENAI_API_KEY"]
 client = OpenAI(api_key=api_key)
 
 # =========================
-# Local file used by voice app
+# Hosted voice backend
 # =========================
-VOICE_TRANSCRIPT_FILE = Path("voice_transcript_latest.json")
-
-# =========================
-# Voice server URL
-# Change this later if needed
-# =========================
-VOICE_SERVER_BASE_URL = "http://127.0.0.1:8000"
+VOICE_SERVER_BASE_URL = "https://history-taking-voice.onrender.com"
 
 # =========================
 # Rubric summary for feedback/scoring
-# Keep this strict
 # =========================
 RUBRIC_TEXT = """
 Wits Paediatrics history-taking rubric (strict marking approach)
@@ -88,8 +81,7 @@ Rules:
 - realistic caregiver language
 - common paediatric problem
 - keep case_summary hidden and concise but clinically useful
-- opening_line must sound like a caregiver speaking, for example:
-  "Hello, my name is Lindiwe and this is Aya who has been coughing. Who am I speaking to?"
+- opening_line must sound like a caregiver speaking
 """
 
 # =========================
@@ -112,7 +104,6 @@ System: {system}
     try:
         data = json.loads(text)
     except Exception:
-        # fallback if model wraps JSON in markdown
         match = re.search(r"\{.*\}", text, re.DOTALL)
         if not match:
             raise ValueError("Could not parse generated case JSON.")
@@ -233,13 +224,18 @@ Provide:
 
 
 def import_latest_voice_transcript():
-    if not VOICE_TRANSCRIPT_FILE.exists():
-        return None, "No saved voice transcript found yet."
+    try:
+        response = requests.get(f"{VOICE_SERVER_BASE_URL}/latest_transcript", timeout=20)
+    except Exception as e:
+        return None, f"Could not contact voice server: {e}"
 
-    with open(VOICE_TRANSCRIPT_FILE, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    if response.status_code != 200:
+        return None, "No saved voice transcript found yet on the voice server."
 
+    payload = response.json()
+    data = payload.get("data", {})
     transcript_lines = data.get("transcript_lines", [])
+
     if not transcript_lines:
         return None, "Saved voice transcript is empty."
 
@@ -380,6 +376,7 @@ if st.button("Import latest voice transcript"):
             st.session_state.mode = "post_presentation"
         else:
             st.session_state.presentation_done = False
+            st.session_state.mode = "caregiver"
 
         st.success("Voice transcript imported.")
         st.rerun()
