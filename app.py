@@ -85,6 +85,35 @@ Rules:
 """
 
 # =========================
+# Options
+# =========================
+AGE_OPTIONS = [
+    "Please select age group",
+    "Neonate",
+    "Infant",
+    "1-5 years",
+    "6-10 years",
+    "11-19 years",
+]
+
+SYSTEM_OPTIONS = [
+    "Please select system",
+    "Respiratory",
+    "Gastrointestinal",
+    "Neurological",
+    "Cardiovascular",
+    "Endocrine",
+    "Renal",
+    "Infectious diseases",
+    "Nutrition",
+    "Development",
+    "Neonatology",
+    "Haematology and oncology",
+    "Musculoskeletal",
+    "Dermatology",
+]
+
+# =========================
 # Helpers
 # =========================
 def generate_case(age_group: str, system: str):
@@ -288,58 +317,63 @@ if "score_generated" not in st.session_state:
 if "mode" not in st.session_state:
     st.session_state.mode = "caregiver"
 
+if "selected_age" not in st.session_state:
+    st.session_state.selected_age = AGE_OPTIONS[0]
+
+if "selected_system" not in st.session_state:
+    st.session_state.selected_system = SYSTEM_OPTIONS[0]
+
 # =========================
 # Controls
 # =========================
 selected_age = st.selectbox(
     "Choose age group",
-    ["Neonate", "Infant", "1-5 years", "6-10 years", "11-19 years"],
+    AGE_OPTIONS,
+    key="selected_age",
 )
 
 selected_system = st.selectbox(
     "Choose system",
-    [
-        "Respiratory",
-        "Gastrointestinal",
-        "Neurological",
-        "Cardiovascular",
-        "Endocrine",
-        "Renal",
-        "Infectious diseases",
-        "Nutrition",
-        "Development",
-        "Neonatology",
-        "Haematology and oncology",
-        "Musculoskeletal",
-        "Dermatology",
-    ],
+    SYSTEM_OPTIONS,
+    key="selected_system",
+)
+
+valid_selection = (
+    selected_age != AGE_OPTIONS[0] and
+    selected_system != SYSTEM_OPTIONS[0]
 )
 
 col1, col2 = st.columns(2)
 
 with col1:
     if st.button("Start / reset case"):
-        try:
-            case_data = generate_case(selected_age, selected_system)
-            st.session_state.case_data = case_data
-            st.session_state.messages = [
-                {"role": "assistant", "content": case_data["opening_line"]}
-            ]
-            st.session_state.presentation_done = False
-            st.session_state.feedback_generated = None
-            st.session_state.score_generated = None
-            st.session_state.mode = "caregiver"
-            st.rerun()
-        except Exception as e:
-            st.error(f"Could not generate case: {e}")
+        if not valid_selection:
+            st.warning("Please select both an age group and a system first.")
+        else:
+            try:
+                case_data = generate_case(selected_age, selected_system)
+                st.session_state.case_data = case_data
+                st.session_state.messages = [
+                    {"role": "assistant", "content": case_data["opening_line"]}
+                ]
+                st.session_state.presentation_done = False
+                st.session_state.feedback_generated = None
+                st.session_state.score_generated = None
+                st.session_state.mode = "caregiver"
+                st.rerun()
+            except Exception as e:
+                st.error(f"Could not generate case: {e}")
 
 with col2:
     if st.button("Reset conversation"):
         st.session_state.messages = []
+        st.session_state.case_data = None
         st.session_state.presentation_done = False
         st.session_state.feedback_generated = None
         st.session_state.score_generated = None
         st.session_state.mode = "caregiver"
+        st.session_state.selected_age = AGE_OPTIONS[0]
+        st.session_state.selected_system = SYSTEM_OPTIONS[0]
         st.rerun()
 
 # =========================
@@ -348,7 +382,11 @@ with col2:
 st.markdown("### Live voice mode")
 
 if st.session_state.case_data:
-    voice_url = build_voice_url(selected_age, selected_system, st.session_state.case_data)
+    voice_url = build_voice_url(
+        st.session_state.selected_age,
+        st.session_state.selected_system,
+        st.session_state.case_data
+    )
     st.link_button("Open realtime voice case", voice_url)
 else:
     st.info("Start a case first, then open the voice page.")
@@ -450,4 +488,3 @@ if st.session_state.feedback_generated:
 if st.session_state.score_generated:
     st.markdown("### Score")
     st.write(st.session_state.score_generated)
-
