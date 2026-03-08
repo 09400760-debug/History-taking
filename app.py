@@ -7,7 +7,6 @@ import streamlit as st
 from openai import OpenAI
 
 st.set_page_config(page_title="History-taking practice bot", page_icon="🩺")
-
 st.title("🩺 History-taking practice bot")
 
 # =========================
@@ -415,7 +414,7 @@ if st.session_state.case_data:
 
     st.markdown(
         f"""
-<a href="{voice_url}" target="_blank">
+<a href="{voice_url}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;">
     <button style="
         background-color:#ff4b4b;
         color:white;
@@ -434,7 +433,7 @@ else:
     st.info("Start a case first, then open the voice page.")
 
 st.caption(
-    "The voice case opens in a new tab. Keep this Streamlit tab open. After you finish the voice case and click Stop Session there, come back here and import the latest voice transcript."
+    "The voice case should open in a new tab. Keep this Streamlit tab open. After you finish the voice case and click Stop Session there, come back here and import the latest voice transcript."
 )
 
 if st.button("Import latest voice transcript"):
