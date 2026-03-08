@@ -412,12 +412,29 @@ if st.session_state.case_data:
         st.session_state.selected_system,
         st.session_state.case_data,
     )
-    st.link_button("Open realtime voice case", voice_url)
+
+    st.markdown(
+        f"""
+<a href="{voice_url}" target="_blank">
+    <button style="
+        background-color:#ff4b4b;
+        color:white;
+        border:none;
+        padding:0.6em 1em;
+        border-radius:0.5rem;
+        cursor:pointer;
+        font-size:1rem;">
+        Open realtime voice case
+    </button>
+</a>
+""",
+        unsafe_allow_html=True,
+    )
 else:
     st.info("Start a case first, then open the voice page.")
 
 st.caption(
-    "After you finish the voice case and click Stop Session there, come back here and import the latest voice transcript."
+    "The voice case opens in a new tab. Keep this Streamlit tab open. After you finish the voice case and click Stop Session there, come back here and import the latest voice transcript."
 )
 
 if st.button("Import latest voice transcript"):
@@ -434,7 +451,7 @@ if st.button("Import latest voice transcript"):
             [f"{m['role']}: {m['content']}" for m in imported_messages]
         ).lower()
 
-        if "please click stop session, then return to the main app for feedback and scoring" in transcript_text:
+        if "please click stop session" in transcript_text:
             st.session_state.presentation_done = True
             st.session_state.mode = "post_presentation"
         else:
