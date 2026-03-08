@@ -379,4 +379,137 @@ with col1:
                 case_data = generate_case(selected_age, selected_system)
                 st.session_state.case_data = case_data
                 st.session_state.messages = [
-                    {"role
+                    {"role": "assistant", "content": case_data["opening_line"]}
+                ]
+                st.session_state.presentation_done = False
+                st.session_state.feedback_generated = None
+                st.session_state.score_generated = None
+                st.session_state.mode = "caregiver"
+                st.rerun()
+            except Exception as e:
+                st.error(f"Could not generate case: {e}")
+
+with col2:
+    if st.button("Reset conversation"):
+        st.session_state.messages = []
+        st.session_state.case_data = None
+        st.session_state.presentation_done = False
+        st.session_state.feedback_generated = None
+        st.session_state.score_generated = None
+        st.session_state.mode = "caregiver"
+        st.session_state.selected_age = AGE_OPTIONS[0]
+        st.session_state.selected_system = SYSTEM_OPTIONS[0]
+        st.rerun()
+
+# =========================
+# Voice section
+# =========================
+st.markdown("### Live voice mode")
+
+if st.session_state.case_data:
+    voice_url = build_voice_url(
+        st.session_state.selected_age,
+        st.session_state.selected_system,
+        st.session_state.case_data,
+    )
+    st.link_button("Open realtime voice case", voice_url)
+else:
+    st.info("Start a case first, then open the voice page.")
+
+st.caption(
+    "After you finish the voice case and click Stop Session there, come back here and import the latest voice transcript."
+)
+
+if st.button("Import latest voice transcript"):
+    imported_messages, import_error = import_latest_voice_transcript()
+
+    if import_error:
+        st.warning(import_error)
+    else:
+        st.session_state.messages = imported_messages
+        st.session_state.feedback_generated = None
+        st.session_state.score_generated = None
+
+        transcript_text = "\n".join(
+            [f"{m['role']}: {m['content']}" for m in imported_messages]
+        ).lower()
+
+        if "please click stop session, then return to the main app for feedback and scoring" in transcript_text:
+            st.session_state.presentation_done = True
+            st.session_state.mode = "post_presentation"
+        else:
+            st.session_state.presentation_done = False
+            st.session_state.mode = "caregiver"
+
+        st.success("Voice transcript imported.")
+        st.rerun()
+
+# =========================
+# Show current case summary to teacher only
+# =========================
+if st.session_state.case_data:
+    with st.expander("Current hidden case summary"):
+        st.write(st.session_state.case_data["case_summary"])
+
+# =========================
+# Chat display
+# =========================
+st.markdown("### Conversation")
+
+for m in st.session_state.messages:
+    with st.chat_message(m["role"]):
+        st.write(m["content"])
+
+# =========================
+# Text chat mode
+# =========================
+if st.session_state.case_data:
+    if prompt := st.chat_input("Type your response…"):
+        st.session_state.messages.append({"role": "user", "content": prompt})
+
+        response = client.responses.create(
+            model="gpt-4.1-mini",
+            instructions=build_text_mode_instructions(st.session_state.case_data),
+            input=st.session_state.messages,
+        )
+
+        assistant_text = response.output_text.strip()
+        st.session_state.messages.append({"role": "assistant", "content": assistant_text})
+
+        lower_reply = assistant_text.lower()
+
+        if "thank you. you can now use the feedback and scoring buttons." in lower_reply:
+            st.session_state.presentation_done = True
+            st.session_state.mode = "post_presentation"
+
+        st.rerun()
+else:
+    st.info("Start a case to begin.")
+
+# =========================
+# Feedback and scoring
+# =========================
+if st.session_state.presentation_done:
+    st.markdown("### Post-presentation tools")
+
+    fcol1, fcol2 = st.columns(2)
+
+    with fcol1:
+        if st.button("Give me Feedback"):
+            with st.spinner("Generating feedback..."):
+                st.session_state.feedback_generated = call_feedback(st.session_state.messages)
+                st.rerun()
+
+    with fcol2:
+        if st.button("Score my Performance"):
+            with st.spinner("Scoring performance..."):
+                st.session_state.score_generated = call_scoring(st.session_state.messages)
+                st.rerun()
+
+if st.session_state.feedback_generated:
+    st.markdown("### Feedback")
+    st.write(st.session_state.feedback_generated)
+
+if st.session_state.score_generated:
+    st.markdown("### Score")
+    st.write(st.session_state.score_generated)
