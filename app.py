@@ -344,7 +344,6 @@ def import_voice_transcript(session_id: str | None):
 
 
 def build_voice_url(age_group, system, case_data, session_id):
-    # Deterministic voice opening to reduce the greeting problem
     voice_opening_line = f"Hello doctor, I'm {case_data['caregiver_name']}."
 
     query = {
@@ -445,13 +444,19 @@ if "last_voice_import_status" not in st.session_state:
     st.session_state.last_voice_import_status = None
 
 # =========================
+# Recover session_id from URL if present
+# =========================
+query_session_id = str(st.query_params.get("session_id", "")).strip()
+if query_session_id:
+    st.session_state.current_session_id = query_session_id
+
+# =========================
 # Auto-import when returning from voice page
 # =========================
 import_voice_flag = st.query_params.get("import_voice", "0")
-query_session_id = st.query_params.get("session_id", "")
 
 if str(import_voice_flag) == "1":
-    session_id_for_import = str(query_session_id).strip() or st.session_state.current_session_id
+    session_id_for_import = st.session_state.current_session_id
     imported_messages, import_error = import_voice_transcript(session_id_for_import)
 
     if import_error:
@@ -529,6 +534,8 @@ if st.session_state.case_data and st.session_state.current_session_id:
         st.session_state.current_session_id,
     )
     st.link_button("Open realtime voice case", voice_url, use_container_width=True)
+elif st.session_state.current_session_id:
+    st.info("Voice session detected. Transcript import and scoring can continue even if the original case selections are no longer visible.")
 else:
     st.info("Start a case first, then open the voice page.")
 
@@ -536,19 +543,18 @@ st.caption(
     "The voice case opens in a new tab. After the session ends and the student clicks Stop Session, the app should return here and import the transcript automatically."
 )
 
-if st.button("Import latest voice transcript manually"):
+manual_import_disabled = not bool(st.session_state.current_session_id)
+if st.button("Import latest voice transcript manually", disabled=manual_import_disabled):
     imported_messages, import_error = import_voice_transcript(st.session_state.current_session_id)
 
     if import_error:
         set_import_status("warning", import_error)
-        st.warning(import_error)
     else:
         apply_imported_messages(
             imported_messages,
             session_id=st.session_state.current_session_id,
             status_message="Voice transcript imported manually.",
         )
-        st.success("Voice transcript imported.")
         st.rerun()
 
 # =========================
@@ -605,10 +611,12 @@ if st.session_state.case_data and st.session_state.mode != "post_presentation":
             st.session_state.mode = "post_presentation"
 
         st.rerun()
-elif not st.session_state.case_data and not st.session_state.messages:
+elif not st.session_state.case_data and not st.session_state.messages and not st.session_state.current_session_id:
     st.info("Start a case to begin.")
 elif st.session_state.mode == "post_presentation":
     st.info("Conversation complete. Use the feedback or scoring tools below.")
+elif st.session_state.messages and not st.session_state.case_data:
+    st.info("Imported voice transcript loaded. You can continue with feedback or scoring below if the session was completed.")
 
 # =========================
 # Feedback and scoring
