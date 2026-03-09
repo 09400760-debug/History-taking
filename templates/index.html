@@ -10,11 +10,22 @@
       margin: 40px auto;
       padding: 0 20px;
     }
-    button {
+    button, a.button-link {
+      display: inline-block;
       padding: 10px 16px;
       margin-right: 10px;
       margin-bottom: 10px;
       font-size: 16px;
+      text-decoration: none;
+      border: 1px solid #ccc;
+      background: #f5f5f5;
+      color: black;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
     }
     #status {
       margin: 12px 0;
@@ -32,6 +43,14 @@
       color: #666;
       font-size: 14px;
     }
+    #returnSection {
+      display: none;
+      margin-top: 20px;
+      padding: 16px;
+      border: 1px solid #d9d9d9;
+      background: #f9f9f9;
+      border-radius: 8px;
+    }
   </style>
 </head>
 <body>
@@ -43,6 +62,11 @@
   <div style="margin-top:20px;">
     <button id="startBtn">Start Voice Session</button>
     <button id="stopBtn" disabled>Stop Session</button>
+  </div>
+
+  <div id="returnSection">
+    <p><strong>Session complete.</strong> Return to the main app to continue.</p>
+    <a id="returnBtn" class="button-link" href="#">Return to main app</a>
   </div>
 
   <h3>Live transcript</h3>
@@ -57,13 +81,43 @@
     let sessionFinished = false;
     let openingLineSeen = false;
     let transcriptLines = [];
+    let transcriptSaved = false;
 
     const statusEl = document.getElementById("status");
     const transcriptEl = document.getElementById("transcript");
     const remoteAudioEl = document.getElementById("remoteAudio");
+    const startBtn = document.getElementById("startBtn");
+    const stopBtn = document.getElementById("stopBtn");
+    const returnSection = document.getElementById("returnSection");
+    const returnBtn = document.getElementById("returnBtn");
 
-    const FINAL_LINE =
-      "thank you. please click stop session, then return to the main app for feedback and scoring.";
+    function getQueryParam(name, fallback = "") {
+      const params = new URLSearchParams(window.location.search);
+      return params.get(name) || fallback;
+    }
+
+    function buildReturnUrl() {
+      const rawReturnUrl = getQueryParam("return_url", "");
+      if (!rawReturnUrl) return "";
+
+      try {
+        const url = new URL(rawReturnUrl);
+        url.searchParams.set("import_voice", "1");
+        return url.toString();
+      } catch {
+        return rawReturnUrl.includes("?")
+          ? `${rawReturnUrl}&import_voice=1`
+          : `${rawReturnUrl}?import_voice=1`;
+      }
+    }
+
+    const RETURN_URL = buildReturnUrl();
+
+    if (RETURN_URL) {
+      returnBtn.href = RETURN_URL;
+    } else {
+      returnBtn.style.display = "none";
+    }
 
     function addTranscriptLine(speaker, text) {
       if (!text) return;
@@ -73,31 +127,62 @@
     }
 
     async function saveTranscriptToServer() {
+      if (transcriptSaved) return true;
+
       try {
         const payload = {
           transcript_lines: transcriptLines,
           transcript_text: transcriptLines.map(x => `${x.speaker}: ${x.text}`).join("\n")
         };
 
-        await fetch("/save_transcript", {
+        const response = await fetch("/save_transcript", {
           method: "POST",
           headers: {
             "Content-Type": "application/json"
           },
           body: JSON.stringify(payload)
         });
+
+        if (!response.ok) {
+          throw new Error(`Save failed with status ${response.status}`);
+        }
+
+        transcriptSaved = true;
+        return true;
       } catch (err) {
         console.error("Could not save transcript:", err);
+        statusEl.textContent = "Could not save transcript";
+        return false;
       }
     }
 
-    function getQueryParam(name, fallback = "") {
-      const params = new URLSearchParams(window.location.search);
-      return params.get(name) || fallback;
+    function normalizeText(text) {
+      return (text || "")
+        .toLowerCase()
+        .trim()
+        .replace(/[.,!?']/g, "")
+        .replace(/\s+/g, " ");
     }
 
-    function normalizeText(text) {
-      return text.toLowerCase().trim().replace(/[.,!?]/g, "");
+    function showReturnSection() {
+      returnSection.style.display = "block";
+    }
+
+    async function finishSessionAndPrepareReturn() {
+      sessionFinished = true;
+      statusEl.textContent = "Session complete";
+      await saveTranscriptToServer();
+      showReturnSection();
+    }
+
+    function isFinalLine(botText) {
+      const lower = normalizeText(botText);
+
+      return (
+        lower === normalizeText("Thank you. Please go back to the Streamlit app and click 'Import latest voice transcript'.") ||
+        lower.includes("go back to the streamlit app") ||
+        lower.includes("import latest voice transcript")
+      );
     }
 
     async function startSession() {
@@ -105,11 +190,16 @@
         sessionFinished = false;
         openingLineSeen = false;
         transcriptLines = [];
+        transcriptSaved = false;
         transcriptEl.textContent = "";
+        returnSection.style.display = "none";
         statusEl.textContent = "Accessing microphone...";
 
         const age_group = getQueryParam("age_group", "Infant");
         const system = getQueryParam("system", "Respiratory");
+        const caregiver_name = getQueryParam("caregiver_name", "Lindiwe");
+        const child_name = getQueryParam("child_name", "");
+        const presenting_complaint = getQueryParam("presenting_complaint", "");
         const case_summary = getQueryParam("case_summary", "");
         const opening_line = getQueryParam("opening_line", "Hello, who am I speaking to?");
         const normalizedOpeningLine = normalizeText(opening_line);
@@ -121,7 +211,7 @@
         };
 
         pc.onconnectionstatechange = () => {
-          if (!sessionFinished) {
+          if (!sessionFinished && pc) {
             statusEl.textContent = `Connection state: ${pc.connectionState}`;
           }
         };
@@ -140,7 +230,7 @@
             console.log("Realtime event:", msg);
 
             if (msg.type === "conversation.item.input_audio_transcription.completed") {
-              if (!sessionFinished) {
+              if (!sessionFinished && msg.transcript) {
                 addTranscriptLine("Student", msg.transcript);
               }
               return;
@@ -154,9 +244,7 @@
                   const botText = transcriptPart.transcript;
                   const normalizedBotText = normalizeText(botText);
 
-                  if (sessionFinished) {
-                    return;
-                  }
+                  if (sessionFinished) return;
 
                   if (normalizedBotText === normalizedOpeningLine) {
                     if (!openingLineSeen) {
@@ -168,25 +256,23 @@
 
                   addTranscriptLine("Bot", botText);
 
-                  const lower = botText.toLowerCase().trim();
+                  const lower = normalizeText(botText);
 
-                  if (lower === "would you like to move to preceptor mode?") {
+                  if (lower === normalizeText("Would you like to move to preceptor mode?")) {
                     statusEl.textContent = "Preceptor handoff offered";
                     return;
                   }
 
                   if (
-                    lower.includes("based on the history, what is your assessment") &&
+                    lower.includes("based on the history what is your assessment") &&
                     lower.includes("what are your differential diagnoses")
                   ) {
                     statusEl.textContent = "Preceptor mode";
                     return;
                   }
 
-                  if (lower === FINAL_LINE) {
-                    sessionFinished = true;
-                    statusEl.textContent = "Session complete";
-                    await saveTranscriptToServer();
+                  if (isFinalLine(botText)) {
+                    await finishSessionAndPrepareReturn();
                     return;
                   }
                 }
@@ -216,6 +302,9 @@
         const query = new URLSearchParams({
           age_group,
           system,
+          caregiver_name,
+          child_name,
+          presenting_complaint,
           case_summary,
           opening_line
         }).toString();
@@ -240,8 +329,8 @@
 
         await pc.setRemoteDescription(answer);
 
-        document.getElementById("startBtn").disabled = true;
-        document.getElementById("stopBtn").disabled = false;
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
         statusEl.textContent = "Live session running";
 
       } catch (err) {
@@ -251,6 +340,8 @@
     }
 
     async function stopSession() {
+      await saveTranscriptToServer();
+
       if (dc) {
         try { dc.close(); } catch {}
         dc = null;
@@ -266,18 +357,24 @@
         localStream = null;
       }
 
-      document.getElementById("startBtn").disabled = false;
-      document.getElementById("stopBtn").disabled = true;
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
 
       if (sessionFinished) {
         statusEl.textContent = "Session complete";
       } else {
         statusEl.textContent = "Disconnected";
       }
+
+      showReturnSection();
+
+      if (RETURN_URL) {
+        window.location.href = RETURN_URL;
+      }
     }
 
-    document.getElementById("startBtn").addEventListener("click", startSession);
-    document.getElementById("stopBtn").addEventListener("click", stopSession);
+    startBtn.addEventListener("click", startSession);
+    stopBtn.addEventListener("click", stopSession);
   </script>
 </body>
 </html>
