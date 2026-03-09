@@ -22,7 +22,12 @@ STREAMLIT_APP_URL = "https://history-takinggit-eexzk8appdm3vzfej2vtuzn.streamlit
 # =========================
 # Constants
 # =========================
-FINAL_TEXT_LINE = "Thank you. The session is complete."
+TEXT_PRECEPTOR_INVITE = "Would you like to move to preceptor mode?"
+TEXT_PRECEPTOR_QUESTION = "Based on the history, what is your assessment? What are your differential diagnoses?"
+TEXT_FEEDBACK_QUESTION = "Would you like to get your assessment and feedback now?"
+TEXT_FINAL_YES = "Generating your feedback and score now."
+TEXT_FINAL_NO = "Okay. You can generate feedback later by clicking the button below."
+
 VOICE_COMPLETION_HINTS = [
     "would you like to get your assessment and feedback now",
     "thank you please click stop session now",
@@ -138,8 +143,40 @@ def normalize_text(text: str) -> str:
     return re.sub(r"\s+", " ", str(text).strip().lower())
 
 
-def is_final_text_line(text: str) -> bool:
-    return normalize_text(text) == normalize_text(FINAL_TEXT_LINE)
+def is_yes(text: str) -> bool:
+    t = normalize_text(text)
+    yes_values = {
+        "yes", "y", "yeah", "yep", "okay", "ok", "sure", "please do",
+        "go ahead", "continue", "yes please", "okay yes", "ok yes"
+    }
+    return t in yes_values or t.startswith("yes ")
+
+
+def is_no(text: str) -> bool:
+    t = normalize_text(text)
+    no_values = {
+        "no", "n", "nope", "not now", "later", "no thanks", "not yet"
+    }
+    return t in no_values or t.startswith("no ")
+
+
+def looks_like_finished_history(text: str) -> bool:
+    t = normalize_text(text)
+    phrases = [
+        "finished with history",
+        "i am finished",
+        "im finished",
+        "that's all",
+        "thats all",
+        "done with history",
+        "finished",
+        "no further questions",
+        "i have no further questions",
+        "end history",
+        "i'm done",
+        "im done",
+    ]
+    return any(p in t for p in phrases)
 
 
 def looks_like_voice_session_complete(messages) -> bool:
@@ -209,7 +246,7 @@ System: {system}
     return data
 
 
-def build_text_mode_instructions(case_data):
+def build_caregiver_history_instructions(case_data):
     return f"""
 You are simulating a realistic caregiver in a paediatric history-taking station.
 
@@ -221,18 +258,18 @@ Child name: {case_data["child_name"]}
 Presenting complaint: {case_data["presenting_complaint"]}
 
 Rules:
-- Stay in caregiver role unless the learner clearly indicates they are finished.
+- Stay fully in caregiver role.
 - Use English only.
 - Use simple, natural, non-medical language.
 - Give only the information asked for.
-- Do not volunteer extra details unless it is natural and minimal.
+- Do not volunteer extra details unless directly asked.
 - Do not coach the learner.
 - Do not ask doctor-like questions.
 - If the learner opens with "hello", "hi", "good morning", "good afternoon", or introduces themselves, greet them back naturally, introduce yourself by name, and include your child's name.
 - Do not immediately give the whole story on a simple greeting alone.
 - If the learner asks broad opening clinical questions like "What brought you in?", "What seems to be the problem?", "Tell me about your child", or "What is the problem with your child?", answer with the main complaint naturally.
-- If the learner clearly says they are finished, respond only:
-  "Thank you. The session is complete."
+- If the learner asks something unclear, ask briefly for clarification.
+- Keep your answers internally consistent with the hidden case summary.
 """
 
 
@@ -368,6 +405,7 @@ def reset_case_state():
     st.session_state.assessment_generated = None
     st.session_state.mode = "caregiver"
     st.session_state.last_voice_import_status = None
+    st.session_state.text_phase = "caregiver"
 
 
 def apply_imported_messages(imported_messages, session_id=None, status_message="Voice transcript imported automatically."):
@@ -375,9 +413,63 @@ def apply_imported_messages(imported_messages, session_id=None, status_message="
     st.session_state.assessment_generated = None
     st.session_state.presentation_done = looks_like_voice_session_complete(imported_messages)
     st.session_state.mode = "post_presentation" if st.session_state.presentation_done else "caregiver"
+    st.session_state.text_phase = "post_presentation" if st.session_state.presentation_done else "caregiver"
     if session_id:
         st.session_state.current_session_id = session_id
     set_status("success", status_message)
+
+
+def run_text_state_machine(user_text: str):
+    phase = st.session_state.text_phase
+    case_data = st.session_state.case_data
+
+    if phase == "caregiver":
+        if looks_like_finished_history(user_text):
+            st.session_state.text_phase = "await_preceptor_choice"
+            return TEXT_PRECEPTOR_INVITE
+
+        response = client.responses.create(
+            model="gpt-4.1-mini",
+            instructions=build_caregiver_history_instructions(case_data),
+            input=st.session_state.messages,
+        )
+        return response.output_text.strip()
+
+    if phase == "await_preceptor_choice":
+        if is_yes(user_text):
+            st.session_state.text_phase = "await_preceptor_answer"
+            return TEXT_PRECEPTOR_QUESTION
+        if is_no(user_text):
+            st.session_state.text_phase = "caregiver"
+            response = client.responses.create(
+                model="gpt-4.1-mini",
+                instructions=build_caregiver_history_instructions(case_data),
+                input=[
+                    {"role": "system", "content": "The learner chose not to move to preceptor mode. Continue in caregiver role."},
+                    *st.session_state.messages,
+                ],
+            )
+            return response.output_text.strip()
+        return "Please answer yes or no."
+
+    if phase == "await_preceptor_answer":
+        st.session_state.text_phase = "await_feedback_choice"
+        return TEXT_FEEDBACK_QUESTION
+
+    if phase == "await_feedback_choice":
+        if is_yes(user_text):
+            st.session_state.text_phase = "post_presentation"
+            st.session_state.presentation_done = True
+            st.session_state.mode = "post_presentation"
+            return TEXT_FINAL_YES
+        if is_no(user_text):
+            st.session_state.text_phase = "post_presentation"
+            st.session_state.presentation_done = True
+            st.session_state.mode = "post_presentation"
+            return TEXT_FINAL_NO
+        return "Please answer yes or no."
+
+    return "Conversation complete."
 
 
 # =========================
@@ -400,6 +492,9 @@ if "assessment_generated" not in st.session_state:
 
 if "mode" not in st.session_state:
     st.session_state.mode = "caregiver"
+
+if "text_phase" not in st.session_state:
+    st.session_state.text_phase = "caregiver"
 
 if "selected_age" not in st.session_state:
     st.session_state.selected_age = AGE_OPTIONS[0]
@@ -440,6 +535,7 @@ if import_voice_flag == "1":
                 st.session_state.assessment_generated = call_assessment(imported_messages)
                 st.session_state.presentation_done = True
                 st.session_state.mode = "post_presentation"
+                st.session_state.text_phase = "post_presentation"
 
     clear_return_query_params()
     st.rerun()
@@ -534,18 +630,12 @@ if st.session_state.case_data and st.session_state.mode != "post_presentation":
     if prompt := st.chat_input("Type your response…"):
         st.session_state.messages.append({"role": "user", "content": prompt})
 
-        response = client.responses.create(
-            model="gpt-4.1-mini",
-            instructions=build_text_mode_instructions(st.session_state.case_data),
-            input=st.session_state.messages,
-        )
-
-        assistant_text = response.output_text.strip()
+        assistant_text = run_text_state_machine(prompt)
         st.session_state.messages.append({"role": "assistant", "content": assistant_text})
 
-        if is_final_text_line(assistant_text):
-            st.session_state.presentation_done = True
-            st.session_state.mode = "post_presentation"
+        if normalize_text(assistant_text) == normalize_text(TEXT_FINAL_YES):
+            with st.spinner("Generating feedback..."):
+                st.session_state.assessment_generated = call_assessment(st.session_state.messages)
 
         st.rerun()
 
