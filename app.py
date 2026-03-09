@@ -23,7 +23,7 @@ STREAMLIT_APP_URL = "https://history-takinggit-eexzk8appdm3vzfej2vtuzn.streamlit
 # Constants
 # =========================
 FINAL_VOICE_LINE = "Thank you. Please click stop session. You will then be taken back automatically for feedback and scoring."
-FINAL_TEXT_LINE = "Thank you. You can now use the feedback and scoring buttons."
+FINAL_TEXT_LINE = "Thank you. The session is complete."
 
 # =========================
 # Rubric summary for feedback/scoring
@@ -54,17 +54,15 @@ Important strict principles:
 - If the learner asks closed questions only, note the weakness.
 - Use transcript evidence only.
 
-Feedback format:
+Output format:
 - Strengths
 - Areas for improvement
 - Missed opportunities
+- Domain-based scoring comments
+- Overall score out of 100
 - Overall comment
 
-Scoring format:
-- Score each major domain briefly
-- Give an overall score out of 100
-- Use a strict marker standard
-- Give a short rationale
+Mark strictly.
 """
 
 # =========================
@@ -90,7 +88,7 @@ Rules:
 - realistic caregiver language
 - common paediatric problem
 - keep case_summary hidden and concise but clinically useful
-- opening_line must sound like a caregiver speaking
+- opening_line must be a brief natural caregiver greeting that introduces the caregiver and child
 
 Example format:
 {
@@ -98,7 +96,7 @@ Example format:
   "child_name": "Aya",
   "presenting_complaint": "cough and difficulty breathing",
   "case_summary": "An 8-month-old with 2 days of cough, fast breathing, poor feeding, mild fever, and no seizures.",
-  "opening_line": "Hello, who am I speaking to?"
+  "opening_line": "Hello doctor, I'm Lindiwe. My baby's name is Aya."
 }
 """
 
@@ -212,17 +210,14 @@ Rules:
 - Use English only.
 - Use simple, natural, non-medical language.
 - Give only the information asked for.
-- Do not volunteer extra details.
+- Do not volunteer extra details unless it is natural and minimal.
 - Do not coach the learner.
 - Do not ask doctor-like questions.
-- If the learner only introduces themselves, acknowledge briefly and wait.
-- If the learner asks broad opening questions like "What brought you in?" answer with the main complaint directly.
-- If the learner clearly says they are done, respond only:
-  "Would you like to move to preceptor mode?"
-- If the learner says yes to preceptor mode, ask only:
-  "Based on the history, what is your assessment? What are your differential diagnoses?"
-- After the learner answers in preceptor mode, respond only:
-  "Thank you. You can now use the feedback and scoring buttons."
+- If the learner opens with "hello", "good morning", or introduces themselves, greet them back naturally, introduce yourself by name, and include your child's name.
+- Do not immediately give the whole story on a simple greeting alone.
+- If the learner asks broad opening questions like "What brought you in?" or "Tell me about your child," answer with the main complaint naturally.
+- If the learner clearly says they are finished, respond only:
+  "Thank you. The session is complete."
 """
 
 
@@ -230,18 +225,21 @@ def transcript_from_messages(messages):
     return "\n".join([f'{m["role"]}: {m["content"]}' for m in messages])
 
 
-def call_feedback(messages):
+def call_assessment(messages):
     transcript = transcript_from_messages(messages)
 
     instructions = f"""
-You are a strict paediatric preceptor giving feedback on a student history-taking station.
+You are a strict paediatric preceptor and examiner giving combined feedback and scoring on a student history-taking station.
 
 Use this rubric summary:
 {RUBRIC_TEXT}
 
-Give concise but useful feedback.
-Do not be generous.
-Base everything on transcript evidence only.
+Rules:
+- Be strict.
+- Do not be generous.
+- Base everything only on transcript evidence.
+- Do not assume missing history was asked.
+- Keep the feedback concise but specific and useful.
 """
 
     prompt = f"""
@@ -252,40 +250,9 @@ Provide:
 1. Strengths
 2. Areas for improvement
 3. Missed opportunities
-4. Overall comment
-"""
-
-    response = client.responses.create(
-        model="gpt-4.1-mini",
-        instructions=instructions,
-        input=prompt,
-    )
-    return response.output_text.strip()
-
-
-def call_scoring(messages):
-    transcript = transcript_from_messages(messages)
-
-    instructions = f"""
-You are a strict paediatric examiner scoring a history-taking performance.
-
-Use this rubric summary:
-{RUBRIC_TEXT}
-
-Mark strictly.
-Do not be generous.
-Base everything on transcript evidence only.
-Give an overall score out of 100.
-"""
-
-    prompt = f"""
-Transcript:
-{transcript}
-
-Provide:
-- Brief domain-based scoring comments
-- Overall score out of 100
-- Short rationale for the mark
+4. Domain-based scoring comments
+5. Overall score out of 100
+6. Overall comment
 """
 
     response = client.responses.create(
@@ -344,8 +311,6 @@ def import_voice_transcript(session_id: str | None):
 
 
 def build_voice_url(age_group, system, case_data, session_id):
-    voice_opening_line = f"Hello doctor, I'm {case_data['caregiver_name']}."
-
     query = {
         "age_group": age_group,
         "system": system,
@@ -353,7 +318,7 @@ def build_voice_url(age_group, system, case_data, session_id):
         "child_name": case_data["child_name"],
         "presenting_complaint": case_data["presenting_complaint"],
         "case_summary": case_data["case_summary"],
-        "opening_line": voice_opening_line,
+        "opening_line": case_data["opening_line"],
         "session_id": session_id,
         "return_url": STREAMLIT_APP_URL,
     }
@@ -361,7 +326,7 @@ def build_voice_url(age_group, system, case_data, session_id):
 
 
 def clear_import_query_params():
-    for key in ["import_voice", "session_id"]:
+    for key in ["import_voice", "session_id", "auto_feedback"]:
         try:
             if key in st.query_params:
                 del st.query_params[key]
@@ -385,11 +350,15 @@ def set_import_status(level: str, message: str):
     st.session_state.last_voice_import_status = {"level": level, "message": message}
 
 
-def apply_imported_messages(imported_messages, session_id=None, status_message="Voice transcript imported automatically."):
+def apply_imported_messages(
+    imported_messages,
+    session_id=None,
+    status_message="Voice transcript imported automatically.",
+    mark_complete=True,
+):
     st.session_state.messages = imported_messages
-    st.session_state.feedback_generated = None
-    st.session_state.score_generated = None
-    st.session_state.presentation_done = detect_presentation_done(imported_messages)
+    st.session_state.assessment_generated = None
+    st.session_state.presentation_done = True if mark_complete else detect_presentation_done(imported_messages)
     st.session_state.mode = "post_presentation" if st.session_state.presentation_done else "caregiver"
     if session_id:
         st.session_state.current_session_id = session_id
@@ -401,13 +370,34 @@ def reset_case_state(reset_selections: bool = False):
     st.session_state.case_data = None
     st.session_state.current_session_id = None
     st.session_state.presentation_done = False
-    st.session_state.feedback_generated = None
-    st.session_state.score_generated = None
+    st.session_state.assessment_generated = None
     st.session_state.mode = "caregiver"
     st.session_state.last_voice_import_status = None
     if reset_selections:
         st.session_state.selected_age = AGE_OPTIONS[0]
         st.session_state.selected_system = SYSTEM_OPTIONS[0]
+
+
+def auto_generate_assessment_if_needed():
+    should_auto_feedback = str(st.session_params_auto_feedback()).strip() == "1"
+    if (
+        should_auto_feedback
+        and st.session_state.presentation_done
+        and st.session_state.messages
+        and not st.session_state.assessment_generated
+    ):
+        st.session_state.assessment_generated = call_assessment(st.session_state.messages)
+
+
+def st_session_params_get(key: str, default=""):
+    try:
+        return st.query_params.get(key, default)
+    except Exception:
+        return default
+
+
+def st_session_params_auto_feedback():
+    return st_session_params_get("auto_feedback", "0")
 
 
 # =========================
@@ -425,11 +415,8 @@ if "current_session_id" not in st.session_state:
 if "presentation_done" not in st.session_state:
     st.session_state.presentation_done = False
 
-if "feedback_generated" not in st.session_state:
-    st.session_state.feedback_generated = None
-
-if "score_generated" not in st.session_state:
-    st.session_state.score_generated = None
+if "assessment_generated" not in st.session_state:
+    st.session_state.assessment_generated = None
 
 if "mode" not in st.session_state:
     st.session_state.mode = "caregiver"
@@ -446,14 +433,15 @@ if "last_voice_import_status" not in st.session_state:
 # =========================
 # Recover session_id from URL if present
 # =========================
-query_session_id = str(st.query_params.get("session_id", "")).strip()
+query_session_id = str(st_session_params_get("session_id", "")).strip()
 if query_session_id:
     st.session_state.current_session_id = query_session_id
 
 # =========================
 # Auto-import when returning from voice page
 # =========================
-import_voice_flag = st.query_params.get("import_voice", "0")
+import_voice_flag = st_session_params_get("import_voice", "0")
+auto_feedback_flag = st_session_params_get("auto_feedback", "0")
 
 if str(import_voice_flag) == "1":
     session_id_for_import = st.session_state.current_session_id
@@ -466,7 +454,11 @@ if str(import_voice_flag) == "1":
             imported_messages,
             session_id=session_id_for_import,
             status_message="Voice transcript imported automatically.",
+            mark_complete=True,
         )
+
+        if str(auto_feedback_flag) == "1":
+            st.session_state.assessment_generated = call_assessment(imported_messages)
 
     clear_import_query_params()
     st.rerun()
@@ -491,35 +483,24 @@ valid_selection = (
     and selected_system != SYSTEM_OPTIONS[0]
 )
 
-col1, col2 = st.columns(2)
+if st.button("Start new case", use_container_width=True):
+    if not valid_selection:
+        st.warning("Please select both an age group and a system first.")
+    else:
+        try:
+            case_data = generate_case(selected_age, selected_system)
+            session_id = str(uuid.uuid4())
 
-with col1:
-    if st.button("Start / reset case"):
-        if not valid_selection:
-            st.warning("Please select both an age group and a system first.")
-        else:
-            try:
-                case_data = generate_case(selected_age, selected_system)
-                session_id = str(uuid.uuid4())
-
-                st.session_state.case_data = case_data
-                st.session_state.current_session_id = session_id
-                st.session_state.messages = [
-                    {"role": "assistant", "content": case_data["opening_line"]}
-                ]
-                st.session_state.presentation_done = False
-                st.session_state.feedback_generated = None
-                st.session_state.score_generated = None
-                st.session_state.mode = "caregiver"
-                st.session_state.last_voice_import_status = None
-                st.rerun()
-            except Exception as e:
-                st.error(f"Could not generate case: {e}")
-
-with col2:
-    if st.button("Reset conversation"):
-        reset_case_state(reset_selections=True)
-        st.rerun()
+            st.session_state.case_data = case_data
+            st.session_state.current_session_id = session_id
+            st.session_state.messages = []
+            st.session_state.presentation_done = False
+            st.session_state.assessment_generated = None
+            st.session_state.mode = "caregiver"
+            st.session_state.last_voice_import_status = None
+            st.rerun()
+        except Exception as e:
+            st.error(f"Could not generate case: {e}")
 
 # =========================
 # Voice section
@@ -535,27 +516,13 @@ if st.session_state.case_data and st.session_state.current_session_id:
     )
     st.link_button("Open realtime voice case", voice_url, use_container_width=True)
 elif st.session_state.current_session_id:
-    st.info("Voice session detected. Transcript import and scoring can continue even if the original case selections are no longer visible.")
+    st.info("Voice session detected. If the student has completed the session, the transcript can still be imported automatically on return.")
 else:
     st.info("Start a case first, then open the voice page.")
 
 st.caption(
     "The voice case opens in a new tab. After the session ends and the student clicks Stop Session, the app should return here and import the transcript automatically."
 )
-
-manual_import_disabled = not bool(st.session_state.current_session_id)
-if st.button("Import latest voice transcript manually", disabled=manual_import_disabled):
-    imported_messages, import_error = import_voice_transcript(st.session_state.current_session_id)
-
-    if import_error:
-        set_import_status("warning", import_error)
-    else:
-        apply_imported_messages(
-            imported_messages,
-            session_id=st.session_state.current_session_id,
-            status_message="Voice transcript imported manually.",
-        )
-        st.rerun()
 
 # =========================
 # Show import status
@@ -573,13 +540,6 @@ if isinstance(status_value, dict):
             st.info(message)
 elif isinstance(status_value, str) and status_value.strip():
     st.info(status_value.strip())
-
-# =========================
-# Show current case summary to teacher only
-# =========================
-if st.session_state.case_data:
-    with st.expander("Current hidden case summary"):
-        st.write(st.session_state.case_data["case_summary"])
 
 # =========================
 # Chat display
@@ -611,37 +571,26 @@ if st.session_state.case_data and st.session_state.mode != "post_presentation":
             st.session_state.mode = "post_presentation"
 
         st.rerun()
+
 elif not st.session_state.case_data and not st.session_state.messages and not st.session_state.current_session_id:
     st.info("Start a case to begin.")
+
 elif st.session_state.mode == "post_presentation":
-    st.info("Conversation complete. Use the feedback or scoring tools below.")
+    st.info("Conversation complete.")
+
 elif st.session_state.messages and not st.session_state.case_data:
-    st.info("Imported voice transcript loaded. You can continue with feedback or scoring below if the session was completed.")
+    st.info("Imported voice transcript loaded.")
 
 # =========================
-# Feedback and scoring
+# Feedback
 # =========================
-if st.session_state.presentation_done:
-    st.markdown("### Post-presentation tools")
-
-    fcol1, fcol2 = st.columns(2)
-
-    with fcol1:
-        if st.button("Give me Feedback"):
-            with st.spinner("Generating feedback..."):
-                st.session_state.feedback_generated = call_feedback(st.session_state.messages)
-                st.rerun()
-
-    with fcol2:
-        if st.button("Score my Performance"):
-            with st.spinner("Scoring performance..."):
-                st.session_state.score_generated = call_scoring(st.session_state.messages)
-                st.rerun()
-
-if st.session_state.feedback_generated:
+if st.session_state.presentation_done and not st.session_state.assessment_generated:
     st.markdown("### Feedback")
-    st.write(st.session_state.feedback_generated)
+    if st.button("Give me Feedback", use_container_width=True):
+        with st.spinner("Generating feedback..."):
+            st.session_state.assessment_generated = call_assessment(st.session_state.messages)
+            st.rerun()
 
-if st.session_state.score_generated:
-    st.markdown("### Score")
-    st.write(st.session_state.score_generated)
+if st.session_state.assessment_generated:
+    st.markdown("### Feedback and score")
+    st.write(st.session_state.assessment_generated)
