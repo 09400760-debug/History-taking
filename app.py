@@ -16,10 +16,13 @@ api_key = st.secrets["OPENAI_API_KEY"]
 client = OpenAI(api_key=api_key)
 
 VOICE_SERVER_BASE_URL = "https://history-taking-voice.onrender.com"
-
-# IMPORTANT:
-# Replace this with your actual Streamlit app URL
 STREAMLIT_APP_URL = "https://history-takinggit-eexzk8appdm3vzfej2vtuzn.streamlit.app/"
+
+# =========================
+# Constants
+# =========================
+FINAL_VOICE_LINE = "Thank you. Please click stop session. You will then be taken back automatically for feedback and scoring."
+FINAL_TEXT_LINE = "Thank you. You can now use the feedback and scoring buttons."
 
 # =========================
 # Rubric summary for feedback/scoring
@@ -128,7 +131,28 @@ SYSTEM_OPTIONS = [
 ]
 
 # =========================
-# Helpers
+# Normalization helpers
+# =========================
+def normalize_text(text: str) -> str:
+    return re.sub(r"\s+", " ", str(text).strip().lower())
+
+
+def is_final_voice_line(text: str) -> bool:
+    normalized = normalize_text(text)
+    return (
+        normalized == normalize_text(FINAL_VOICE_LINE)
+        or "please click stop session" in normalized
+        or "taken back automatically" in normalized
+        or "feedback and scoring" in normalized
+    )
+
+
+def is_final_text_line(text: str) -> bool:
+    return normalize_text(text) == normalize_text(FINAL_TEXT_LINE)
+
+
+# =========================
+# Case helpers
 # =========================
 def generate_case(age_group: str, system: str):
     prompt = f"""
@@ -286,7 +310,11 @@ def import_latest_voice_transcript():
     if response.status_code != 200:
         return None, "No saved voice transcript found yet on the voice server."
 
-    payload = response.json()
+    try:
+        payload = response.json()
+    except Exception as e:
+        return None, f"Voice server returned invalid JSON: {e}"
+
     data = payload.get("data", {})
     transcript_lines = data.get("transcript_lines", [])
 
@@ -295,8 +323,9 @@ def import_latest_voice_transcript():
 
     messages = []
     for line in transcript_lines:
-        speaker = line.get("speaker", "").strip()
-        text = line.get("text", "").strip()
+        speaker = str(line.get("speaker", "")).strip()
+        text = str(line.get("text", "")).strip()
+
         if not text:
             continue
 
@@ -333,22 +362,46 @@ def clear_import_query_params():
         pass
 
 
+def get_last_assistant_message(messages):
+    for message in reversed(messages):
+        if message.get("role") == "assistant":
+            return str(message.get("content", "")).strip()
+    return ""
+
+
 def detect_presentation_done(messages):
-    transcript_text = "\n".join(
-        [f"{m['role']}: {m['content']}" for m in messages]
-    ).lower()
+    last_assistant = get_last_assistant_message(messages)
+    return is_final_voice_line(last_assistant) or is_final_text_line(last_assistant)
 
-    if (
-        "thank you. please go back to the streamlit app and click 'import latest voice transcript'." in transcript_text
-        or "thank you. you can now use the feedback and scoring buttons." in transcript_text
-    ):
-        return True
 
-    return False
+def set_import_status(level: str, message: str):
+    st.session_state.last_voice_import_status = {"level": level, "message": message}
+
+
+def apply_imported_messages(imported_messages, status_message="Voice transcript imported automatically."):
+    st.session_state.messages = imported_messages
+    st.session_state.feedback_generated = None
+    st.session_state.score_generated = None
+    st.session_state.presentation_done = detect_presentation_done(imported_messages)
+    st.session_state.mode = "post_presentation" if st.session_state.presentation_done else "caregiver"
+    set_import_status("success", status_message)
+
+
+def reset_case_state(reset_selections: bool = False):
+    st.session_state.messages = []
+    st.session_state.case_data = None
+    st.session_state.presentation_done = False
+    st.session_state.feedback_generated = None
+    st.session_state.score_generated = None
+    st.session_state.mode = "caregiver"
+    st.session_state.last_voice_import_status = None
+    if reset_selections:
+        st.session_state.selected_age = AGE_OPTIONS[0]
+        st.session_state.selected_system = SYSTEM_OPTIONS[0]
 
 
 # =========================
-# Session state
+# Session state initialization
 # =========================
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -374,9 +427,6 @@ if "selected_age" not in st.session_state:
 if "selected_system" not in st.session_state:
     st.session_state.selected_system = SYSTEM_OPTIONS[0]
 
-if "voice_auto_import_done" not in st.session_state:
-    st.session_state.voice_auto_import_done = False
-
 if "last_voice_import_status" not in st.session_state:
     st.session_state.last_voice_import_status = None
 
@@ -385,19 +435,13 @@ if "last_voice_import_status" not in st.session_state:
 # =========================
 import_voice_flag = st.query_params.get("import_voice", "0")
 
-if import_voice_flag == "1" and not st.session_state.voice_auto_import_done:
+if str(import_voice_flag) == "1":
     imported_messages, import_error = import_latest_voice_transcript()
 
     if import_error:
-        st.session_state.last_voice_import_status = f"warning::{import_error}"
+        set_import_status("warning", import_error)
     else:
-        st.session_state.messages = imported_messages
-        st.session_state.feedback_generated = None
-        st.session_state.score_generated = None
-        st.session_state.presentation_done = detect_presentation_done(imported_messages)
-        st.session_state.mode = "post_presentation" if st.session_state.presentation_done else "caregiver"
-        st.session_state.last_voice_import_status = "success::Voice transcript imported automatically."
-        st.session_state.voice_auto_import_done = True
+        apply_imported_messages(imported_messages, "Voice transcript imported automatically.")
 
     clear_import_query_params()
     st.rerun()
@@ -439,26 +483,14 @@ with col1:
                 st.session_state.feedback_generated = None
                 st.session_state.score_generated = None
                 st.session_state.mode = "caregiver"
-                st.session_state.voice_auto_import_done = False
                 st.session_state.last_voice_import_status = None
-                clear_import_query_params()
                 st.rerun()
             except Exception as e:
                 st.error(f"Could not generate case: {e}")
 
 with col2:
     if st.button("Reset conversation"):
-        st.session_state.messages = []
-        st.session_state.case_data = None
-        st.session_state.presentation_done = False
-        st.session_state.feedback_generated = None
-        st.session_state.score_generated = None
-        st.session_state.mode = "caregiver"
-        st.session_state.selected_age = AGE_OPTIONS[0]
-        st.session_state.selected_system = SYSTEM_OPTIONS[0]
-        st.session_state.voice_auto_import_done = False
-        st.session_state.last_voice_import_status = None
-        clear_import_query_params()
+        reset_case_state(reset_selections=True)
         st.rerun()
 
 # =========================
@@ -480,32 +512,33 @@ st.caption(
     "The voice case opens in a new tab. After the session ends and the student clicks Stop Session, the app should return here and import the transcript automatically."
 )
 
-manual_import = st.button("Import latest voice transcript manually")
-
-if manual_import:
+if st.button("Import latest voice transcript manually"):
     imported_messages, import_error = import_latest_voice_transcript()
 
     if import_error:
+        set_import_status("warning", import_error)
         st.warning(import_error)
     else:
-        st.session_state.messages = imported_messages
-        st.session_state.feedback_generated = None
-        st.session_state.score_generated = None
-        st.session_state.presentation_done = detect_presentation_done(imported_messages)
-        st.session_state.mode = "post_presentation" if st.session_state.presentation_done else "caregiver"
-        st.session_state.voice_auto_import_done = True
+        apply_imported_messages(imported_messages, "Voice transcript imported manually.")
         st.success("Voice transcript imported.")
         st.rerun()
 
 # =========================
-# Show auto-import status
+# Show import status
 # =========================
-if st.session_state.last_voice_import_status:
-    level, message = st.session_state.last_voice_import_status.split("::", 1)
-    if level == "success":
-        st.success(message)
-    elif level == "warning":
-        st.warning(message)
+status_value = st.session_state.last_voice_import_status
+if isinstance(status_value, dict):
+    level = status_value.get("level", "info")
+    message = status_value.get("message", "")
+    if message:
+        if level == "success":
+            st.success(message)
+        elif level == "warning":
+            st.warning(message)
+        else:
+            st.info(message)
+elif isinstance(status_value, str) and status_value.strip():
+    st.info(status_value.strip())
 
 # =========================
 # Show current case summary to teacher only
@@ -526,7 +559,7 @@ for m in st.session_state.messages:
 # =========================
 # Text chat mode
 # =========================
-if st.session_state.case_data:
+if st.session_state.case_data and st.session_state.mode != "post_presentation":
     if prompt := st.chat_input("Type your response…"):
         st.session_state.messages.append({"role": "user", "content": prompt})
 
@@ -539,15 +572,15 @@ if st.session_state.case_data:
         assistant_text = response.output_text.strip()
         st.session_state.messages.append({"role": "assistant", "content": assistant_text})
 
-        lower_reply = assistant_text.lower().strip()
-
-        if "thank you. you can now use the feedback and scoring buttons." in lower_reply:
+        if is_final_text_line(assistant_text):
             st.session_state.presentation_done = True
             st.session_state.mode = "post_presentation"
 
         st.rerun()
-else:
+elif not st.session_state.case_data:
     st.info("Start a case to begin.")
+else:
+    st.info("Conversation complete. Use the feedback or scoring tools below.")
 
 # =========================
 # Feedback and scoring
