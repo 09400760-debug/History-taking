@@ -1,6 +1,7 @@
 import json
 import re
 import urllib.parse
+import uuid
 
 import requests
 import streamlit as st
@@ -138,13 +139,7 @@ def normalize_text(text: str) -> str:
 
 
 def is_final_voice_line(text: str) -> bool:
-    normalized = normalize_text(text)
-    return (
-        normalized == normalize_text(FINAL_VOICE_LINE)
-        or "please click stop session" in normalized
-        or "taken back automatically" in normalized
-        or "feedback and scoring" in normalized
-    )
+    return normalize_text(text) == normalize_text(FINAL_VOICE_LINE)
 
 
 def is_final_text_line(text: str) -> bool:
@@ -152,7 +147,7 @@ def is_final_text_line(text: str) -> bool:
 
 
 # =========================
-# Case helpers
+# Helpers
 # =========================
 def generate_case(age_group: str, system: str):
     prompt = f"""
@@ -301,9 +296,17 @@ Provide:
     return response.output_text.strip()
 
 
-def import_latest_voice_transcript():
+def import_voice_transcript(session_id: str | None):
+    params = {}
+    if session_id:
+        params["session_id"] = session_id
+
     try:
-        response = requests.get(f"{VOICE_SERVER_BASE_URL}/latest_transcript", timeout=20)
+        response = requests.get(
+            f"{VOICE_SERVER_BASE_URL}/latest_transcript",
+            params=params,
+            timeout=20,
+        )
     except Exception as e:
         return None, f"Could not contact voice server: {e}"
 
@@ -340,7 +343,10 @@ def import_latest_voice_transcript():
     return messages, None
 
 
-def build_voice_url(age_group, system, case_data):
+def build_voice_url(age_group, system, case_data, session_id):
+    # Deterministic voice opening to reduce the greeting problem
+    voice_opening_line = f"Hello doctor, I'm {case_data['caregiver_name']}."
+
     query = {
         "age_group": age_group,
         "system": system,
@@ -348,18 +354,20 @@ def build_voice_url(age_group, system, case_data):
         "child_name": case_data["child_name"],
         "presenting_complaint": case_data["presenting_complaint"],
         "case_summary": case_data["case_summary"],
-        "opening_line": case_data["opening_line"],
+        "opening_line": voice_opening_line,
+        "session_id": session_id,
         "return_url": STREAMLIT_APP_URL,
     }
     return f"{VOICE_SERVER_BASE_URL}/?{urllib.parse.urlencode(query)}"
 
 
 def clear_import_query_params():
-    try:
-        if "import_voice" in st.query_params:
-            del st.query_params["import_voice"]
-    except Exception:
-        pass
+    for key in ["import_voice", "session_id"]:
+        try:
+            if key in st.query_params:
+                del st.query_params[key]
+        except Exception:
+            pass
 
 
 def get_last_assistant_message(messages):
@@ -378,18 +386,21 @@ def set_import_status(level: str, message: str):
     st.session_state.last_voice_import_status = {"level": level, "message": message}
 
 
-def apply_imported_messages(imported_messages, status_message="Voice transcript imported automatically."):
+def apply_imported_messages(imported_messages, session_id=None, status_message="Voice transcript imported automatically."):
     st.session_state.messages = imported_messages
     st.session_state.feedback_generated = None
     st.session_state.score_generated = None
     st.session_state.presentation_done = detect_presentation_done(imported_messages)
     st.session_state.mode = "post_presentation" if st.session_state.presentation_done else "caregiver"
+    if session_id:
+        st.session_state.current_session_id = session_id
     set_import_status("success", status_message)
 
 
 def reset_case_state(reset_selections: bool = False):
     st.session_state.messages = []
     st.session_state.case_data = None
+    st.session_state.current_session_id = None
     st.session_state.presentation_done = False
     st.session_state.feedback_generated = None
     st.session_state.score_generated = None
@@ -408,6 +419,9 @@ if "messages" not in st.session_state:
 
 if "case_data" not in st.session_state:
     st.session_state.case_data = None
+
+if "current_session_id" not in st.session_state:
+    st.session_state.current_session_id = None
 
 if "presentation_done" not in st.session_state:
     st.session_state.presentation_done = False
@@ -434,14 +448,20 @@ if "last_voice_import_status" not in st.session_state:
 # Auto-import when returning from voice page
 # =========================
 import_voice_flag = st.query_params.get("import_voice", "0")
+query_session_id = st.query_params.get("session_id", "")
 
 if str(import_voice_flag) == "1":
-    imported_messages, import_error = import_latest_voice_transcript()
+    session_id_for_import = str(query_session_id).strip() or st.session_state.current_session_id
+    imported_messages, import_error = import_voice_transcript(session_id_for_import)
 
     if import_error:
         set_import_status("warning", import_error)
     else:
-        apply_imported_messages(imported_messages, "Voice transcript imported automatically.")
+        apply_imported_messages(
+            imported_messages,
+            session_id=session_id_for_import,
+            status_message="Voice transcript imported automatically.",
+        )
 
     clear_import_query_params()
     st.rerun()
@@ -475,7 +495,10 @@ with col1:
         else:
             try:
                 case_data = generate_case(selected_age, selected_system)
+                session_id = str(uuid.uuid4())
+
                 st.session_state.case_data = case_data
+                st.session_state.current_session_id = session_id
                 st.session_state.messages = [
                     {"role": "assistant", "content": case_data["opening_line"]}
                 ]
@@ -498,11 +521,12 @@ with col2:
 # =========================
 st.markdown("### Live voice mode")
 
-if st.session_state.case_data:
+if st.session_state.case_data and st.session_state.current_session_id:
     voice_url = build_voice_url(
         st.session_state.selected_age,
         st.session_state.selected_system,
         st.session_state.case_data,
+        st.session_state.current_session_id,
     )
     st.link_button("Open realtime voice case", voice_url, use_container_width=True)
 else:
@@ -513,13 +537,17 @@ st.caption(
 )
 
 if st.button("Import latest voice transcript manually"):
-    imported_messages, import_error = import_latest_voice_transcript()
+    imported_messages, import_error = import_voice_transcript(st.session_state.current_session_id)
 
     if import_error:
         set_import_status("warning", import_error)
         st.warning(import_error)
     else:
-        apply_imported_messages(imported_messages, "Voice transcript imported manually.")
+        apply_imported_messages(
+            imported_messages,
+            session_id=st.session_state.current_session_id,
+            status_message="Voice transcript imported manually.",
+        )
         st.success("Voice transcript imported.")
         st.rerun()
 
@@ -577,9 +605,9 @@ if st.session_state.case_data and st.session_state.mode != "post_presentation":
             st.session_state.mode = "post_presentation"
 
         st.rerun()
-elif not st.session_state.case_data:
+elif not st.session_state.case_data and not st.session_state.messages:
     st.info("Start a case to begin.")
-else:
+elif st.session_state.mode == "post_presentation":
     st.info("Conversation complete. Use the feedback or scoring tools below.")
 
 # =========================
