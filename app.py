@@ -37,15 +37,13 @@ TEXT_DONE_PROMPT = "Thank you. If you are done, I will now generate your feedbac
 VOICE_COMPLETION_HINTS = [
     "please click stop session now",
     "this session is complete",
-    "thank you. please click stop session now",
-    "okay. please click stop session now",
+    "thank you. this session is complete. please click stop session now",
 ]
 
 INTERACTION_MODES = [
     "Please select interaction mode",
     "Text only",
     "Realtime voice",
-    "Speech-to-text + spoken reply",
 ]
 
 AGE_OPTIONS = [
@@ -76,19 +74,10 @@ SYSTEM_OPTIONS = [
     "Dermatology",
 ]
 
-# Change this to 100 if you want exactly 1-001 to 1-100
 STUDY_NUMBER_MAX = 126
 STUDY_NUMBER_OPTIONS = ["Please select study number"] + [
     f"1-{i:03d}" for i in range(1, STUDY_NUMBER_MAX + 1)
 ]
-
-GRADE_LABELS = {
-    1: "Needs significant development",
-    2: "Emerging competence",
-    3: "Meets expectations",
-    4: "Strong performance",
-    5: "Outstanding proficiency",
-}
 
 # =========================
 # Rubric summaries
@@ -517,9 +506,23 @@ def apply_imported_messages(imported_obj, session_id=None, status_message="Voice
     st.session_state.presentation_done = looks_like_voice_session_complete(imported_messages)
     st.session_state.mode = "post_presentation" if st.session_state.presentation_done else "caregiver"
     st.session_state.text_phase = "post_presentation" if st.session_state.presentation_done else "caregiver"
-    st.session_state.case_ended_at = now_iso()
+
+    raw_payload = imported_obj.get("raw_payload") or {}
+    st.session_state.case_started_at = raw_payload.get("started_at") or st.session_state.case_started_at
+    st.session_state.case_ended_at = raw_payload.get("ended_at") or now_iso()
+
+    if raw_payload.get("age_group"):
+        st.session_state.resolved_age = raw_payload.get("age_group")
+    if raw_payload.get("system"):
+        st.session_state.resolved_system = raw_payload.get("system")
+    if raw_payload.get("study_number"):
+        st.session_state.study_number = raw_payload.get("study_number")
+    if raw_payload.get("interaction_mode"):
+        st.session_state.interaction_mode = raw_payload.get("interaction_mode")
+
     if session_id:
         st.session_state.current_session_id = session_id
+
     set_status("success", status_message)
 
 
@@ -612,6 +615,7 @@ defaults = {
     "selected_system": SYSTEM_OPTIONS[0],
     "selected_study_number": STUDY_NUMBER_OPTIONS[0],
     "interaction_mode": INTERACTION_MODES[0],
+    "study_number": None,
     "last_voice_import_status": None,
     "study_number_confirmed": False,
     "case_started_at": None,
@@ -718,14 +722,6 @@ with col4:
         key="selected_system",
     )
 
-valid_selection = (
-    selected_study_number != "Please select study number"
-    and st.session_state.study_number_confirmed
-    and selected_mode != INTERACTION_MODES[0]
-    and selected_age != AGE_OPTIONS[0]
-    and selected_system != SYSTEM_OPTIONS[0]
-)
-
 if st.button("Start new case", use_container_width=True):
     if selected_study_number == "Please select study number":
         st.warning("Please select a study number first.")
@@ -746,7 +742,6 @@ if st.button("Start new case", use_container_width=True):
             st.session_state.current_session_id = session_id
             st.session_state.case_started_at = now_iso()
             st.session_state.study_number = selected_study_number
-            st.session_state.interaction_mode = selected_mode
             st.session_state.resolved_age = resolved_age
             st.session_state.resolved_system = resolved_system
             st.session_state.transcript_download_name = f"transcript_{selected_study_number}_{session_id}.txt"
@@ -762,8 +757,8 @@ if st.session_state.case_data:
     st.write(
         f"**Study number:** {st.session_state.study_number}  \n"
         f"**Interaction mode:** {st.session_state.interaction_mode}  \n"
-        f"**Age group:** {st.session_state.resolved_age}  \n"
-        f"**System:** {st.session_state.resolved_system}"
+        f"**Age group:** {st.session_state.resolved_age or 'Not recorded'}  \n"
+        f"**System:** {st.session_state.resolved_system or 'Not recorded'}"
     )
 
 # =========================
@@ -776,13 +771,6 @@ if st.session_state.case_data and st.session_state.interaction_mode == "Realtime
     st.caption(
         "The voice case opens in a new tab. After the session ends and the student clicks Stop Session, "
         "the app should return here and import the transcript automatically."
-    )
-
-elif st.session_state.case_data and st.session_state.interaction_mode == "Speech-to-text + spoken reply":
-    st.markdown("### Speech-to-text + spoken reply")
-    st.info(
-        "This mode has been reserved in the workflow and interface, but still needs the matching backend "
-        "voice logic in the voice repo. For now, use Text only or Realtime voice."
     )
 
 # =========================
@@ -854,6 +842,8 @@ if st.session_state.presentation_done:
         if st.button("Generate brief feedback", use_container_width=True):
             with st.spinner("Generating brief feedback..."):
                 st.session_state.brief_assessment_generated = call_assessment(st.session_state.messages, detailed=False)
+                if not st.session_state.case_ended_at:
+                    st.session_state.case_ended_at = now_iso()
                 st.rerun()
 
     if st.session_state.brief_assessment_generated:
@@ -863,6 +853,8 @@ if st.session_state.presentation_done:
             if st.button("Show detailed feedback", use_container_width=True):
                 with st.spinner("Generating detailed feedback..."):
                     st.session_state.detailed_assessment_generated = call_assessment(st.session_state.messages, detailed=True)
+                    if not st.session_state.case_ended_at:
+                        st.session_state.case_ended_at = now_iso()
                     st.rerun()
 
         if st.session_state.detailed_assessment_generated:
@@ -921,8 +913,8 @@ if st.session_state.presentation_done:
 if st.session_state.case_data or st.session_state.messages:
     st.markdown("### Session details")
     st.write(
-        f"**Study number:** {getattr(st.session_state, 'study_number', 'Not recorded')}  \n"
-        f"**Interaction mode:** {st.session_state.interaction_mode}  \n"
+        f"**Study number:** {st.session_state.study_number or 'Not recorded'}  \n"
+        f"**Interaction mode:** {st.session_state.interaction_mode or 'Not recorded'}  \n"
         f"**Age group:** {st.session_state.resolved_age or 'Not recorded'}  \n"
         f"**System:** {st.session_state.resolved_system or 'Not recorded'}  \n"
         f"**Session ID:** {st.session_state.current_session_id or 'Not recorded'}  \n"
