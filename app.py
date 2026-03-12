@@ -31,13 +31,17 @@ WELCOME_TEXT = (
 )
 
 TEXT_PRECEPTOR_INVITE = "Would you like to move to preceptor mode?"
-TEXT_PRECEPTOR_QUESTION = "Based on the history, what is your assessment? What are your differential diagnoses?"
-TEXT_DONE_PROMPT = "Thank you. If you are done, I will now generate your feedback."
+TEXT_DIAGNOSIS_QUESTION = "What is your diagnosis?"
+TEXT_DIFFERENTIALS_QUESTION = "What are your differential diagnoses?"
+TEXT_FEEDBACK_QUESTION = "Would you like to receive your assessment now?"
+TEXT_FINAL_YES = "Thank you. I will now generate your feedback."
+TEXT_FINAL_NO = "Okay. You can request your feedback when you are ready."
 
 VOICE_COMPLETION_HINTS = [
-    "please click stop session now",
-    "this session is complete",
-    "thank you. this session is complete. please click stop session now",
+    "would you like to receive your assessment now",
+    "thank you. please click stop session now for feedback",
+    "session ended due to inactivity. returning for feedback now",
+    "session ended because the 30 minute limit was reached. returning for feedback now",
 ]
 
 INTERACTION_MODES = [
@@ -97,7 +101,7 @@ Assess the student on:
 9. Family history
 10. Social history where relevant
 11. Communication and logical flow
-12. Preceptor stage: assessment and differential diagnoses
+12. Preceptor stage: diagnosis and differential diagnoses
 
 Important:
 - Use transcript evidence only.
@@ -127,7 +131,7 @@ Assess the student strictly on:
 9. Family history
 10. Social history where relevant
 11. Communication and logical flow
-12. Preceptor stage: assessment and differential diagnoses
+12. Preceptor stage: diagnosis and differential diagnoses
 
 Important strict principles:
 - Do not mark generously.
@@ -210,11 +214,11 @@ def is_no(text: str) -> bool:
 
 def looks_like_finished_history(text: str) -> bool:
     t = normalize_text(text)
-
     phrases = [
         "finished with history",
         "i am finished",
         "im finished",
+        "i'm finished",
         "i am done",
         "im done",
         "i'm done",
@@ -226,8 +230,18 @@ def looks_like_finished_history(text: str) -> bool:
         "i have no further questions",
         "end history",
         "that is all",
+        "that is complete",
+        "that's complete",
+        "thats complete",
+        "history complete",
+        "we are done",
+        "i am complete",
+        "history is complete",
+        "can we move to preceptor",
+        "can we switch to preceptor",
+        "move to preceptor",
+        "switch to preceptor",
     ]
-
     return any(p in t for p in phrases)
 
 
@@ -244,7 +258,7 @@ def looks_like_voice_session_complete(messages) -> bool:
     if not assistant_lines:
         return False
 
-    for line in reversed(assistant_lines[-5:]):
+    for line in reversed(assistant_lines[-8:]):
         if any(hint in line for hint in VOICE_COMPLETION_HINTS):
             return True
 
@@ -506,6 +520,8 @@ def reset_case_state():
     st.session_state.resolved_age = None
     st.session_state.resolved_system = None
     st.session_state.transcript_download_name = None
+    st.session_state.selected_age_was_random = False
+    st.session_state.selected_system_was_random = False
 
 
 def apply_imported_messages(imported_obj, session_id=None, status_message="Voice transcript imported automatically."):
@@ -514,9 +530,6 @@ def apply_imported_messages(imported_obj, session_id=None, status_message="Voice
     st.session_state.raw_voice_payload = imported_obj.get("raw_payload")
     st.session_state.brief_assessment_generated = None
     st.session_state.detailed_assessment_generated = None
-    st.session_state.presentation_done = looks_like_voice_session_complete(imported_messages)
-    st.session_state.mode = "post_presentation" if st.session_state.presentation_done else "caregiver"
-    st.session_state.text_phase = "post_presentation" if st.session_state.presentation_done else "caregiver"
 
     raw_payload = imported_obj.get("raw_payload") or {}
     st.session_state.case_started_at = raw_payload.get("started_at") or st.session_state.case_started_at
@@ -531,6 +544,10 @@ def apply_imported_messages(imported_obj, session_id=None, status_message="Voice
 
     if session_id:
         st.session_state.current_session_id = session_id
+
+    st.session_state.presentation_done = looks_like_voice_session_complete(imported_messages)
+    st.session_state.mode = "post_presentation" if st.session_state.presentation_done else "caregiver"
+    st.session_state.text_phase = "post_presentation" if st.session_state.presentation_done else "caregiver"
 
     set_status("success", status_message)
 
@@ -565,6 +582,11 @@ def build_reflection_text():
     return "\n".join(lines)
 
 
+def trigger_preceptor_transition():
+    st.session_state.text_phase = "await_preceptor_choice"
+    st.session_state.messages.append({"role": "assistant", "content": TEXT_PRECEPTOR_INVITE})
+
+
 def run_text_state_machine(user_text: str):
     phase = st.session_state.text_phase
     case_data = st.session_state.case_data
@@ -583,8 +605,8 @@ def run_text_state_machine(user_text: str):
 
     if phase == "await_preceptor_choice":
         if is_yes(user_text):
-            st.session_state.text_phase = "await_preceptor_answer"
-            return TEXT_PRECEPTOR_QUESTION
+            st.session_state.text_phase = "await_diagnosis_answer"
+            return TEXT_DIAGNOSIS_QUESTION
         if is_no(user_text):
             st.session_state.text_phase = "caregiver"
             response = client.responses.create(
@@ -598,12 +620,28 @@ def run_text_state_machine(user_text: str):
             return response.output_text.strip()
         return "Please answer yes or no."
 
-    if phase == "await_preceptor_answer":
-        st.session_state.text_phase = "post_presentation"
-        st.session_state.presentation_done = True
-        st.session_state.mode = "post_presentation"
-        st.session_state.case_ended_at = now_iso()
-        return TEXT_DONE_PROMPT
+    if phase == "await_diagnosis_answer":
+        st.session_state.text_phase = "await_differentials_answer"
+        return TEXT_DIFFERENTIALS_QUESTION
+
+    if phase == "await_differentials_answer":
+        st.session_state.text_phase = "await_feedback_choice"
+        return TEXT_FEEDBACK_QUESTION
+
+    if phase == "await_feedback_choice":
+        if is_yes(user_text):
+            st.session_state.text_phase = "post_presentation"
+            st.session_state.presentation_done = True
+            st.session_state.mode = "post_presentation"
+            st.session_state.case_ended_at = now_iso()
+            return TEXT_FINAL_YES
+        if is_no(user_text):
+            st.session_state.text_phase = "post_presentation"
+            st.session_state.presentation_done = True
+            st.session_state.mode = "post_presentation"
+            st.session_state.case_ended_at = now_iso()
+            return TEXT_FINAL_NO
+        return "Please answer yes or no."
 
     return "Conversation complete."
 
@@ -635,6 +673,8 @@ defaults = {
     "resolved_age": None,
     "resolved_system": None,
     "transcript_download_name": None,
+    "selected_age_was_random": False,
+    "selected_system_was_random": False,
 }
 
 for key, value in defaults.items():
@@ -685,95 +725,89 @@ st.info(WELCOME_TEXT)
 # =========================
 # Setup section
 # =========================
-st.markdown("### Session setup")
+if not st.session_state.case_data and not st.session_state.messages:
+    st.markdown("### Session setup")
 
-col1, col2 = st.columns(2)
+    col1, col2 = st.columns(2)
 
-with col1:
-    selected_study_number = st.selectbox(
-        "Choose study number",
-        STUDY_NUMBER_OPTIONS,
-        key="selected_study_number",
-    )
+    with col1:
+        selected_study_number = st.selectbox(
+            "Choose study number",
+            STUDY_NUMBER_OPTIONS,
+            key="selected_study_number",
+        )
 
-with col2:
-    selected_mode = st.selectbox(
-        "Choose interaction mode",
-        INTERACTION_MODES,
-        key="interaction_mode",
-    )
+    with col2:
+        selected_mode = st.selectbox(
+            "Choose interaction mode",
+            INTERACTION_MODES,
+            key="interaction_mode",
+        )
 
-if selected_study_number != "Please select study number":
-    st.markdown(f"**Study number selected:** {selected_study_number}")
-    study_confirm = st.radio(
-        "Are you sure this is your study number?",
-        ["Please confirm", "Yes", "No"],
-        horizontal=True,
-        key="study_number_confirm_radio",
-    )
-    st.session_state.study_number_confirmed = study_confirm == "Yes"
-else:
-    st.session_state.study_number_confirmed = False
-
-col3, col4 = st.columns(2)
-
-with col3:
-    selected_age = st.selectbox(
-        "Choose age group",
-        AGE_OPTIONS,
-        key="selected_age",
-    )
-
-with col4:
-    selected_system = st.selectbox(
-        "Choose system",
-        SYSTEM_OPTIONS,
-        key="selected_system",
-    )
-
-if st.button("Start new case", use_container_width=True):
-    if selected_study_number == "Please select study number":
-        st.warning("Please select a study number first.")
-    elif not st.session_state.study_number_confirmed:
-        st.warning("Please confirm the study number before starting.")
-    elif selected_mode == INTERACTION_MODES[0]:
-        st.warning("Please select an interaction mode first.")
-    elif selected_age == AGE_OPTIONS[0] or selected_system == SYSTEM_OPTIONS[0]:
-        st.warning("Please select both an age group and a system first.")
+    if selected_study_number != "Please select study number":
+        st.markdown(f"**Study number selected:** {selected_study_number}")
+        study_confirm = st.radio(
+            "Are you sure this is your study number?",
+            ["Please confirm", "Yes", "No"],
+            horizontal=True,
+            key="study_number_confirm_radio",
+        )
+        st.session_state.study_number_confirmed = study_confirm == "Yes"
     else:
-        try:
-            resolved_age, resolved_system = resolve_random_selection(selected_age, selected_system)
-            case_data = generate_case(resolved_age, resolved_system)
-            session_id = str(uuid.uuid4())
+        st.session_state.study_number_confirmed = False
 
-            reset_case_state()
-            st.session_state.case_data = case_data
-            st.session_state.current_session_id = session_id
-            st.session_state.case_started_at = now_iso()
-            st.session_state.study_number = selected_study_number
-            st.session_state.resolved_age = resolved_age
-            st.session_state.resolved_system = resolved_system
-            st.session_state.transcript_download_name = f"transcript_{selected_study_number}_{session_id}.txt"
-            st.rerun()
-        except Exception as e:
-            st.error(f"Could not generate case: {e}")
+    col3, col4 = st.columns(2)
 
-# =========================
-# Active case summary
-# =========================
-if st.session_state.case_data:
-    st.markdown("### Current case")
-    st.write(
-        f"**Study number:** {st.session_state.study_number}  \n"
-        f"**Interaction mode:** {st.session_state.interaction_mode}  \n"
-        f"**Age group:** {st.session_state.resolved_age or 'Not recorded'}  \n"
-        f"**System:** {st.session_state.resolved_system or 'Not recorded'}"
-    )
+    with col3:
+        selected_age = st.selectbox(
+            "Choose age group",
+            AGE_OPTIONS,
+            key="selected_age",
+        )
+
+    with col4:
+        selected_system = st.selectbox(
+            "Choose system",
+            SYSTEM_OPTIONS,
+            key="selected_system",
+        )
+
+    if st.button("Start new case", use_container_width=True):
+        if selected_study_number == "Please select study number":
+            st.warning("Please select a study number first.")
+        elif not st.session_state.study_number_confirmed:
+            st.warning("Please confirm the study number before starting.")
+        elif selected_mode == INTERACTION_MODES[0]:
+            st.warning("Please select an interaction mode first.")
+        elif selected_age == AGE_OPTIONS[0] or selected_system == SYSTEM_OPTIONS[0]:
+            st.warning("Please select both an age group and a system first.")
+        else:
+            try:
+                resolved_age, resolved_system = resolve_random_selection(selected_age, selected_system)
+                case_data = generate_case(resolved_age, resolved_system)
+                session_id = str(uuid.uuid4())
+
+                selected_age_was_random = selected_age == "Random"
+                selected_system_was_random = selected_system == "Random"
+
+                reset_case_state()
+                st.session_state.case_data = case_data
+                st.session_state.current_session_id = session_id
+                st.session_state.case_started_at = now_iso()
+                st.session_state.study_number = selected_study_number
+                st.session_state.resolved_age = resolved_age
+                st.session_state.resolved_system = resolved_system
+                st.session_state.selected_age_was_random = selected_age_was_random
+                st.session_state.selected_system_was_random = selected_system_was_random
+                st.session_state.transcript_download_name = f"transcript_{selected_study_number}_{session_id}.txt"
+                st.rerun()
+            except Exception as e:
+                st.error(f"Could not generate case: {e}")
 
 # =========================
 # Mode-based UI
 # =========================
-if st.session_state.case_data and st.session_state.interaction_mode == "Realtime voice":
+if st.session_state.case_data and st.session_state.interaction_mode == "Realtime voice" and not st.session_state.messages:
     st.markdown("### Realtime voice mode")
     voice_url = build_voice_url(st.session_state.current_session_id)
     st.link_button("Open realtime voice case", voice_url, use_container_width=True)
@@ -815,6 +849,19 @@ if show_live_transcript:
             st.write(m["content"])
 
 # =========================
+# Finish history button
+# =========================
+if (
+    st.session_state.case_data
+    and st.session_state.interaction_mode == "Text only"
+    and st.session_state.mode != "post_presentation"
+    and st.session_state.text_phase == "caregiver"
+):
+    if st.button("Finish history", use_container_width=True):
+        trigger_preceptor_transition()
+        st.rerun()
+
+# =========================
 # Text chat mode
 # =========================
 if (
@@ -828,7 +875,7 @@ if (
         assistant_text = run_text_state_machine(prompt)
         st.session_state.messages.append({"role": "assistant", "content": assistant_text})
 
-        if normalize_text(assistant_text) == normalize_text(TEXT_DONE_PROMPT):
+        if normalize_text(assistant_text) == normalize_text(TEXT_FINAL_YES):
             with st.spinner("Generating brief feedback..."):
                 st.session_state.brief_assessment_generated = call_assessment(st.session_state.messages, detailed=False)
 
@@ -873,7 +920,7 @@ if st.session_state.presentation_done:
 # =========================
 # Transcript tools
 # =========================
-if st.session_state.messages:
+if st.session_state.presentation_done and st.session_state.messages:
     st.markdown("### Transcript")
 
     with st.expander("View transcript", expanded=False):
@@ -915,18 +962,3 @@ if st.session_state.presentation_done:
                 mime="text/plain",
                 use_container_width=True,
             )
-
-# =========================
-# Session metadata
-# =========================
-if st.session_state.case_data or st.session_state.messages:
-    st.markdown("### Session details")
-    st.write(
-        f"**Study number:** {st.session_state.study_number or 'Not recorded'}  \n"
-        f"**Interaction mode:** {st.session_state.interaction_mode or 'Not recorded'}  \n"
-        f"**Age group:** {st.session_state.resolved_age or 'Not recorded'}  \n"
-        f"**System:** {st.session_state.resolved_system or 'Not recorded'}  \n"
-        f"**Session ID:** {st.session_state.current_session_id or 'Not recorded'}  \n"
-        f"**Started at:** {st.session_state.case_started_at or 'Not recorded'}  \n"
-        f"**Ended at:** {st.session_state.case_ended_at or 'Not recorded'}"
-    )
