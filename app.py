@@ -81,6 +81,9 @@ STUDY_NUMBER_OPTIONS = ["Please select study number"] + [
     f"1-{i:03d}" for i in range(1, STUDY_NUMBER_MAX + 1)
 ]
 
+FEMALE_ROLES = {"mother", "grandmother", "aunt", "female guardian", "guardian"}
+MALE_ROLES = {"father", "grandfather", "uncle", "male guardian", "guardian"}
+
 # =========================
 # Rubric summaries
 # =========================
@@ -177,9 +180,9 @@ Rules:
 - Avoid repeatedly using the same names such as Thabo, Sipho, Nomsa, Lindiwe unless genuinely needed
 - Use a wide range of realistic South African names from different backgrounds and languages
 - caregiver_gender must be exactly "female" or "male"
-- caregiver_role must match the caregiver_gender naturally, e.g. mother, grandmother, aunt, female guardian for female; father, grandfather, uncle, male guardian for male
-- If caregiver_gender is female, use a female caregiver name
-- If caregiver_gender is male, use a male caregiver name
+- caregiver_role must match the caregiver_gender naturally
+- If caregiver_gender is female, use a female caregiver name and a matching female role
+- If caregiver_gender is male, use a male caregiver name and a matching male role
 - Child names must vary naturally
 - Do not use the same caregiver name and child name together repeatedly
 - Make the presenting complaint and summary fit the age group and system requested
@@ -211,7 +214,10 @@ def parse_iso(value: str | None):
     if not value:
         return None
     try:
-        return datetime.fromisoformat(str(value))
+        cleaned = str(value).strip()
+        if cleaned.endswith("Z"):
+            cleaned = cleaned[:-1] + "+00:00"
+        return datetime.fromisoformat(cleaned)
     except Exception:
         return None
 
@@ -226,7 +232,7 @@ def format_duration(started_at: str | None, ended_at: str | None) -> str:
     end_dt = parse_iso(ended_at)
     if not start_dt or not end_dt:
         return "Not recorded"
-    mins = max(0, int((end_dt - start_dt).total_seconds() // 60))
+    mins = max(0, int(round((end_dt - start_dt).total_seconds() / 60)))
     return f"{mins} mins"
 
 
@@ -313,6 +319,43 @@ def resolve_random_selection(selected_age: str, selected_system: str):
     return resolved_age, resolved_system
 
 
+def sanitize_case_data(data: dict) -> dict:
+    caregiver_gender = str(data.get("caregiver_gender", "female")).strip().lower()
+    caregiver_role = str(data.get("caregiver_role", "")).strip().lower()
+    caregiver_name = str(data.get("caregiver_name", "")).strip()
+    child_name = str(data.get("child_name", "")).strip()
+    presenting_complaint = str(data.get("presenting_complaint", "")).strip()
+    case_summary = str(data.get("case_summary", "")).strip()
+    opening_line = str(data.get("opening_line", "")).strip()
+
+    if caregiver_gender not in {"female", "male"}:
+        caregiver_gender = "female"
+
+    if caregiver_gender == "female" and caregiver_role not in FEMALE_ROLES:
+        caregiver_role = "mother"
+    if caregiver_gender == "male" and caregiver_role not in MALE_ROLES:
+        caregiver_role = "father"
+
+    if not caregiver_name:
+        caregiver_name = "Zanele" if caregiver_gender == "female" else "Sibusiso"
+    if not child_name:
+        child_name = "Musa"
+    if not presenting_complaint:
+        presenting_complaint = "fever"
+    if not opening_line:
+        opening_line = f"Hello doctor, I'm {caregiver_name}, {child_name}'s {caregiver_role}."
+
+    data["caregiver_gender"] = caregiver_gender
+    data["caregiver_role"] = caregiver_role
+    data["caregiver_name"] = caregiver_name
+    data["child_name"] = child_name
+    data["presenting_complaint"] = presenting_complaint
+    data["case_summary"] = case_summary
+    data["opening_line"] = opening_line
+
+    return data
+
+
 def generate_case(age_group: str, system: str):
     prompt = f"""
 Generate one case for:
@@ -359,8 +402,7 @@ System: {system}
         if key not in data:
             raise ValueError(f"Generated case missing key: {key}")
 
-    if str(data["caregiver_gender"]).strip().lower() not in {"female", "male"}:
-        raise ValueError("Generated case caregiver_gender must be female or male.")
+    data = sanitize_case_data(data)
 
     return data
 
