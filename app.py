@@ -153,7 +153,7 @@ Important strict principles:
 # Case generator prompt
 # =========================
 CASE_GENERATOR_PROMPT = """
-You are generating a paediatric practice case for a 5th-year medical student.
+You are generating a paediatric practice case for a 5th-year medical student in South Africa.
 
 Return ONLY valid JSON.
 Do not include markdown.
@@ -173,14 +173,21 @@ Rules:
 - common paediatric problem
 - keep case_summary hidden and concise but clinically useful
 - opening_line must be a brief natural caregiver greeting that introduces the caregiver and child
+- VARY caregiver and child names across cases
+- Avoid repeatedly using the same names such as Thabo, Sipho, Nomsa, Lindiwe unless genuinely needed
+- Use a wide range of realistic South African names from different backgrounds and languages
+- Caregiver names may be mothers, fathers, grandmothers, or guardians
+- Child names must also vary naturally
+- Do not use the same caregiver name and child name together repeatedly
+- Make the presenting complaint and summary fit the age group and system requested
 
 Example format:
 {
-  "caregiver_name": "Lindiwe",
-  "child_name": "Aya",
-  "presenting_complaint": "cough and difficulty breathing",
-  "case_summary": "An 8-month-old with 2 days of cough, fast breathing, poor feeding, mild fever, and no seizures.",
-  "opening_line": "Hello doctor, I'm Lindiwe. My child's name is Aya."
+  "caregiver_name": "Zanele",
+  "child_name": "Musa",
+  "presenting_complaint": "fever and poor feeding",
+  "case_summary": "A 7-month-old with 2 days of fever, poor feeding and irritability, no seizures, and one episode of vomiting.",
+  "opening_line": "Hello doctor, I'm Zanele. My child's name is Musa."
 }
 """
 
