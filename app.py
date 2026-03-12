@@ -38,8 +38,6 @@ TEXT_FINAL_YES = "Thank you. I will now generate your feedback."
 TEXT_FINAL_NO = "Okay. You can request your feedback when you are ready."
 
 VOICE_COMPLETION_HINTS = [
-    "would you like to receive your assessment now",
-    "thank you. please click stop session now for feedback",
     "session ended due to inactivity. returning for feedback now",
     "session ended because the 30 minute limit was reached. returning for feedback now",
 ]
@@ -162,6 +160,8 @@ Do not include code fences.
 
 Use exactly these keys:
 - caregiver_name
+- caregiver_gender
+- caregiver_role
 - child_name
 - presenting_complaint
 - case_summary
@@ -176,18 +176,23 @@ Rules:
 - VARY caregiver and child names across cases
 - Avoid repeatedly using the same names such as Thabo, Sipho, Nomsa, Lindiwe unless genuinely needed
 - Use a wide range of realistic South African names from different backgrounds and languages
-- Caregiver names may be mothers, fathers, grandmothers, or guardians
-- Child names must also vary naturally
+- caregiver_gender must be exactly "female" or "male"
+- caregiver_role must match the caregiver_gender naturally, e.g. mother, grandmother, aunt, female guardian for female; father, grandfather, uncle, male guardian for male
+- If caregiver_gender is female, use a female caregiver name
+- If caregiver_gender is male, use a male caregiver name
+- Child names must vary naturally
 - Do not use the same caregiver name and child name together repeatedly
 - Make the presenting complaint and summary fit the age group and system requested
 
 Example format:
 {
   "caregiver_name": "Zanele",
+  "caregiver_gender": "female",
+  "caregiver_role": "mother",
   "child_name": "Musa",
   "presenting_complaint": "fever and poor feeding",
   "case_summary": "A 7-month-old with 2 days of fever, poor feeding and irritability, no seizures, and one episode of vomiting.",
-  "opening_line": "Hello doctor, I'm Zanele. My child's name is Musa."
+  "opening_line": "Hello doctor, I'm Zanele, Musa's mother."
 }
 """
 
@@ -200,6 +205,29 @@ def normalize_text(text: str) -> str:
 
 def now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
+
+
+def parse_iso(value: str | None):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value))
+    except Exception:
+        return None
+
+
+def format_hhmm(value: str | None) -> str:
+    dt = parse_iso(value)
+    return dt.strftime("%H:%M") if dt else "Not recorded"
+
+
+def format_duration(started_at: str | None, ended_at: str | None) -> str:
+    start_dt = parse_iso(started_at)
+    end_dt = parse_iso(ended_at)
+    if not start_dt or not end_dt:
+        return "Not recorded"
+    mins = max(0, int((end_dt - start_dt).total_seconds() // 60))
+    return f"{mins} mins"
 
 
 def is_yes(text: str) -> bool:
@@ -320,6 +348,8 @@ System: {system}
 
     required = [
         "caregiver_name",
+        "caregiver_gender",
+        "caregiver_role",
         "child_name",
         "presenting_complaint",
         "case_summary",
@@ -328,6 +358,9 @@ System: {system}
     for key in required:
         if key not in data:
             raise ValueError(f"Generated case missing key: {key}")
+
+    if str(data["caregiver_gender"]).strip().lower() not in {"female", "male"}:
+        raise ValueError("Generated case caregiver_gender must be female or male.")
 
     return data
 
@@ -340,6 +373,7 @@ Hidden case summary:
 {case_data["case_summary"]}
 
 Caregiver name: {case_data["caregiver_name"]}
+Caregiver role: {case_data["caregiver_role"]}
 Child name: {case_data["child_name"]}
 Presenting complaint: {case_data["presenting_complaint"]}
 
@@ -357,7 +391,8 @@ Rules:
 - Do not volunteer extra details unless directly asked.
 - Do not coach the learner.
 - Do not ask doctor-like questions.
-- If the learner opens with "hello", "hi", "good morning", "good afternoon", or introduces themselves, greet them back naturally, introduce yourself by name, and include your child's name.
+- If the learner greets first, greet back first.
+- If the learner opens with "hello", "hi", "good morning", "good afternoon", or introduces themselves, greet them back naturally and introduce yourself and your child.
 - Do not immediately give the whole story on a simple greeting alone.
 - If the learner asks broad opening clinical questions like "What brought you in?", "What seems to be the problem?", "Tell me about your child", or "What is the problem with your child?", answer with the main complaint naturally.
 - If the learner asks something unclear, ask briefly for clarification.
@@ -379,29 +414,31 @@ def call_assessment(messages, detailed: bool = False):
 Transcript:
 {transcript}
 
-Provide:
-1. Overall performance grade (1-5) with label
-2. Strengths
-3. Priority areas for improvement
-4. Missed opportunities
-5. Domain-based scoring comments
-6. Short overall comment
+Use this exact order with clear headings:
+1. Strengths
+2. Priority areas for improvement
+3. Missed opportunities
+4. Domain-based scoring comments
+5. Overall comment
+6. Overall performance grade (1-5) with label
 
-Use clear headings.
+Important:
+- Put the grade LAST, not first.
 """
     else:
         prompt = f"""
 Transcript:
 {transcript}
 
-Provide:
-1. Overall performance grade (1-5) with label
-2. 2-3 key strengths
-3. 2-3 priority improvement points
-4. Short overall comment
+Use this exact order with clear headings:
+1. Key strengths
+2. Priority improvement points
+3. Overall comment
+4. Overall performance grade (1-5) with label
 
-Keep it concise, specific, and learner-friendly.
-Use clear headings.
+Important:
+- Keep it concise, specific, and learner-friendly.
+- Put the grade LAST, not first.
 """
 
     instructions = f"""
@@ -415,6 +452,7 @@ Rules:
 - Do not assume missing history was asked.
 - Be honest but supportive.
 - Use the 1 to 5 grading scale exactly.
+- Follow the requested heading order exactly.
 """
 
     response = client.responses.create(
@@ -477,6 +515,8 @@ def build_voice_url(session_id: str):
         "age_group": st.session_state.resolved_age,
         "system": st.session_state.resolved_system,
         "caregiver_name": st.session_state.case_data["caregiver_name"],
+        "caregiver_gender": st.session_state.case_data["caregiver_gender"],
+        "caregiver_role": st.session_state.case_data["caregiver_role"],
         "child_name": st.session_state.case_data["child_name"],
         "presenting_complaint": st.session_state.case_data["presenting_complaint"],
         "case_summary": st.session_state.case_data["case_summary"],
@@ -527,8 +567,6 @@ def reset_case_state():
     st.session_state.resolved_age = None
     st.session_state.resolved_system = None
     st.session_state.transcript_download_name = None
-    st.session_state.selected_age_was_random = False
-    st.session_state.selected_system_was_random = False
 
 
 def apply_imported_messages(imported_obj, session_id=None, status_message="Voice transcript imported automatically."):
@@ -562,12 +600,9 @@ def apply_imported_messages(imported_obj, session_id=None, status_message="Voice
 def build_transcript_text():
     header = [
         f"Study number: {st.session_state.study_number or 'Not recorded'}",
-        f"Interaction mode: {st.session_state.interaction_mode or 'Not recorded'}",
-        f"Age group: {st.session_state.resolved_age or 'Not recorded'}",
-        f"System: {st.session_state.resolved_system or 'Not recorded'}",
-        f"Session ID: {st.session_state.current_session_id or 'Not recorded'}",
-        f"Started at: {st.session_state.case_started_at or 'Not recorded'}",
-        f"Ended at: {st.session_state.case_ended_at or 'Not recorded'}",
+        f"Start {format_hhmm(st.session_state.case_started_at)}",
+        f"End {format_hhmm(st.session_state.case_ended_at)}",
+        f"Duration {format_duration(st.session_state.case_started_at, st.session_state.case_ended_at)}",
         "",
         "Transcript",
         "----------",
@@ -579,7 +614,6 @@ def build_transcript_text():
 def build_reflection_text():
     lines = [
         f"Study number: {st.session_state.study_number or 'Not recorded'}",
-        f"Session ID: {st.session_state.current_session_id or 'Not recorded'}",
         f"Recorded at: {now_iso()}",
         "",
         "Reflection",
@@ -680,8 +714,6 @@ defaults = {
     "resolved_age": None,
     "resolved_system": None,
     "transcript_download_name": None,
-    "selected_age_was_random": False,
-    "selected_system_was_random": False,
 }
 
 for key, value in defaults.items():
@@ -753,13 +785,11 @@ if not st.session_state.case_data and not st.session_state.messages:
 
     if selected_study_number != "Please select study number":
         st.markdown(f"**Study number selected:** {selected_study_number}")
-        study_confirm = st.radio(
-            "Are you sure this is your study number?",
-            ["Please confirm", "Yes", "No"],
-            horizontal=True,
-            key="study_number_confirm_radio",
+        confirm_checkbox = st.checkbox(
+            "Please confirm this is your study number",
+            key="study_number_confirm_checkbox",
         )
-        st.session_state.study_number_confirmed = study_confirm == "Yes"
+        st.session_state.study_number_confirmed = bool(confirm_checkbox)
     else:
         st.session_state.study_number_confirmed = False
 
@@ -794,9 +824,6 @@ if not st.session_state.case_data and not st.session_state.messages:
                 case_data = generate_case(resolved_age, resolved_system)
                 session_id = str(uuid.uuid4())
 
-                selected_age_was_random = selected_age == "Random"
-                selected_system_was_random = selected_system == "Random"
-
                 reset_case_state()
                 st.session_state.case_data = case_data
                 st.session_state.current_session_id = session_id
@@ -804,8 +831,6 @@ if not st.session_state.case_data and not st.session_state.messages:
                 st.session_state.study_number = selected_study_number
                 st.session_state.resolved_age = resolved_age
                 st.session_state.resolved_system = resolved_system
-                st.session_state.selected_age_was_random = selected_age_was_random
-                st.session_state.selected_system_was_random = selected_system_was_random
                 st.session_state.transcript_download_name = f"transcript_{selected_study_number}_{session_id}.txt"
                 st.rerun()
             except Exception as e:
