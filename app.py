@@ -210,10 +210,14 @@ def is_no(text: str) -> bool:
 
 def looks_like_finished_history(text: str) -> bool:
     t = normalize_text(text)
+
     phrases = [
         "finished with history",
         "i am finished",
         "im finished",
+        "i am done",
+        "im done",
+        "i'm done",
         "that's all",
         "thats all",
         "done with history",
@@ -221,9 +225,9 @@ def looks_like_finished_history(text: str) -> bool:
         "no further questions",
         "i have no further questions",
         "end history",
-        "i'm done",
-        "im done",
+        "that is all",
     ]
+
     return any(p in t for p in phrases)
 
 
@@ -320,6 +324,12 @@ Presenting complaint: {case_data["presenting_complaint"]}
 
 Rules:
 - Stay fully in caregiver role.
+- You are not ChatGPT.
+- You are not a general assistant.
+- Do not break role.
+- Do not thank the learner in a generic assistant style.
+- Do not say "let me know if you need anything else."
+- Do not offer help outside the caregiver role.
 - Use English only.
 - Use simple, natural, non-medical language.
 - Give only the information asked for.
@@ -331,6 +341,7 @@ Rules:
 - If the learner asks broad opening clinical questions like "What brought you in?", "What seems to be the problem?", "Tell me about your child", or "What is the problem with your child?", answer with the main complaint naturally.
 - If the learner asks something unclear, ask briefly for clarification.
 - Keep your answers internally consistent with the hidden case summary.
+- If the learner clearly indicates they are finished, respond only with: "{TEXT_PRECEPTOR_INVITE}"
 """
 
 
@@ -517,8 +528,6 @@ def apply_imported_messages(imported_obj, session_id=None, status_message="Voice
         st.session_state.resolved_system = raw_payload.get("system")
     if raw_payload.get("study_number"):
         st.session_state.study_number = raw_payload.get("study_number")
-    if raw_payload.get("interaction_mode"):
-        st.session_state.interaction_mode = raw_payload.get("interaction_mode")
 
     if session_id:
         st.session_state.current_session_id = session_id
