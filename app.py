@@ -1118,7 +1118,10 @@ if (
 
         if normalize_text(assistant_text) == normalize_text(TEXT_FINAL_YES):
             with st.spinner("Generating brief feedback..."):
-                st.session_state.brief_assessment_generated = call_assessment(st.session_state.messages, detailed=False)
+                st.session_state.brief_assessment_generated = call_assessment(
+                    st.session_state.messages,
+                    detailed=False,
+                )
 
         st.rerun()
 
@@ -1138,7 +1141,10 @@ if st.session_state.presentation_done:
     if not st.session_state.brief_assessment_generated:
         if st.button("Generate brief feedback", use_container_width=True):
             with st.spinner("Generating brief feedback..."):
-                st.session_state.brief_assessment_generated = call_assessment(st.session_state.messages, detailed=False)
+                st.session_state.brief_assessment_generated = call_assessment(
+                    st.session_state.messages,
+                    detailed=False,
+                )
                 if not st.session_state.case_ended_at:
                     st.session_state.case_ended_at = now_iso()
                 st.rerun()
@@ -1149,7 +1155,10 @@ if st.session_state.presentation_done:
         if not st.session_state.detailed_assessment_generated:
             if st.button("Show detailed feedback", use_container_width=True):
                 with st.spinner("Generating detailed feedback..."):
-                    st.session_state.detailed_assessment_generated = call_assessment(st.session_state.messages, detailed=True)
+                    st.session_state.detailed_assessment_generated = call_assessment(
+                        st.session_state.messages,
+                        detailed=True,
+                    )
                     if not st.session_state.case_ended_at:
                         st.session_state.case_ended_at = now_iso()
                     st.rerun()
@@ -1202,5 +1211,4 @@ if st.session_state.presentation_done:
                 file_name=f"reflection_{st.session_state.study_number}_{st.session_state.current_session_id}.txt",
                 mime="text/plain",
                 use_container_width=True,
-            )
             )
