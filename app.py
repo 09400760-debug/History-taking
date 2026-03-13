@@ -9,6 +9,147 @@ import requests
 import streamlit as st
 from openai import OpenAI
 
+
+def inject_mobile_ui_fixes():
+    st.markdown(
+        """
+        <style>
+        :root {
+            color-scheme: light !important;
+        }
+
+        html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"], .main, .stApp {
+            background: #ffffff !important;
+            color: #111111 !important;
+        }
+
+        [data-testid="stHeader"] {
+            background: #ffffff !important;
+        }
+
+        [data-testid="stToolbar"] {
+            right: 0.5rem;
+        }
+
+        .main .block-container {
+            padding-top: 1rem;
+            padding-bottom: 2rem;
+            max-width: 820px;
+            background: #ffffff !important;
+        }
+
+        p, div, label, span, h1, h2, h3, h4, h5, h6 {
+            color: #111111 !important;
+        }
+
+        [data-testid="stChatMessageContent"],
+        [data-testid="stMarkdownContainer"] {
+            color: #111111 !important;
+        }
+
+        /* Inputs */
+        [data-baseweb="select"] > div,
+        [data-baseweb="input"] > div,
+        [data-baseweb="textarea"] > div {
+            background: #ffffff !important;
+            color: #111111 !important;
+            border: 1px solid #cfd8e3 !important;
+            border-radius: 10px !important;
+            box-shadow: none !important;
+        }
+
+        input, textarea {
+            background: #ffffff !important;
+            color: #111111 !important;
+        }
+
+        section[data-testid="stSidebar"] {
+            background: #ffffff !important;
+        }
+
+        /* Checkbox visibility */
+        [data-testid="stCheckbox"] {
+            background: #ffffff !important;
+            color: #111111 !important;
+            padding-top: 0.2rem;
+            padding-bottom: 0.2rem;
+            border-radius: 8px;
+        }
+
+        [data-testid="stCheckbox"] label {
+            color: #111111 !important;
+        }
+
+        /* Buttons */
+        .stButton > button,
+        .stDownloadButton > button,
+        [data-testid="baseButton-secondary"],
+        [data-testid="baseButton-primary"] {
+            border-radius: 10px !important;
+            min-height: 46px !important;
+        }
+
+        /* Dropdown popover */
+        [data-baseweb="popover"] {
+            z-index: 99999 !important;
+        }
+
+        ul[role="listbox"] {
+            background: #ffffff !important;
+            color: #111111 !important;
+            border: 1px solid #cfd8e3 !important;
+            border-radius: 10px !important;
+            max-height: 45vh !important;
+            overflow-y: auto !important;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.12) !important;
+        }
+
+        li[role="option"] {
+            background: #ffffff !important;
+            color: #111111 !important;
+        }
+
+        li[role="option"]:hover {
+            background: #f4f7fb !important;
+        }
+
+        /* Mobile */
+        @media (max-width: 768px) {
+            html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"], .main, .stApp {
+                background: #ffffff !important;
+            }
+
+            .main .block-container {
+                padding-top: 0.5rem !important;
+                padding-left: 0.9rem !important;
+                padding-right: 0.9rem !important;
+                padding-bottom: 2rem !important;
+                background: #ffffff !important;
+            }
+
+            .stSelectbox, .stTextInput, .stTextArea, .stNumberInput {
+                width: 100% !important;
+            }
+
+            [data-baseweb="select"] > div,
+            [data-baseweb="input"] > div,
+            [data-baseweb="textarea"] > div,
+            .stButton > button,
+            .stDownloadButton > button {
+                min-height: 48px !important;
+                font-size: 16px !important;
+            }
+
+            label, p, li, span, div {
+                font-size: 16px !important;
+            }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 st.set_page_config(
     page_title="History-taking practice bot",
     page_icon="🩺",
@@ -16,76 +157,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-st.markdown(
-    """
-    <style>
-    :root {
-        color-scheme: light !important;
-    }
-
-    html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"], .main {
-        background: #ffffff !important;
-        color: #111111 !important;
-    }
-
-    [data-testid="stHeader"] {
-        background: #ffffff !important;
-    }
-
-    [data-testid="stToolbar"] {
-        right: 0.5rem;
-    }
-
-    .main .block-container {
-        padding-top: 1rem;
-        padding-bottom: 2rem;
-        max-width: 820px;
-        background: #ffffff !important;
-    }
-
-    p, div, label, span, h1, h2, h3, h4, h5 {
-        color: #111111 !important;
-    }
-
-    [data-testid="stChatMessageContent"] {
-        color: #111111 !important;
-    }
-
-    [data-testid="stMarkdownContainer"] {
-        color: #111111 !important;
-    }
-
-    [data-baseweb="select"] > div {
-        background: #ffffff !important;
-        color: #111111 !important;
-    }
-
-    input, textarea {
-        background: #ffffff !important;
-        color: #111111 !important;
-    }
-
-    section[data-testid="stSidebar"] {
-        background: #ffffff !important;
-    }
-
-    @media (max-width: 768px) {
-        html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"], .main {
-            background: #ffffff !important;
-        }
-
-        .main .block-container {
-            padding-top: 0.5rem;
-            padding-left: 0.9rem;
-            padding-right: 0.9rem;
-            padding-bottom: 2rem;
-            background: #ffffff !important;
-        }
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+inject_mobile_ui_fixes()
 
 # =========================
 # Config
@@ -995,6 +1067,8 @@ if not st.session_state.case_data and not st.session_state.messages:
         SYSTEM_OPTIONS,
         key="selected_system",
     )
+
+    st.markdown("<div style='height: 110px;'></div>", unsafe_allow_html=True)
 
     if st.button("Start new case", use_container_width=True):
         if selected_study_number == "Please select study number":
