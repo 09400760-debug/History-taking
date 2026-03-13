@@ -9,7 +9,27 @@ import requests
 import streamlit as st
 from openai import OpenAI
 
-st.set_page_config(page_title="History-taking practice bot", page_icon="🩺")
+st.set_page_config(page_title="History-taking practice bot", page_icon="🩺", layout="centered")
+
+st.markdown(
+    """
+    <style>
+    .block-container {
+        padding-top: 1rem;
+        padding-bottom: 2rem;
+        max-width: 820px;
+    }
+    @media (max-width: 768px) {
+        .block-container {
+            padding-top: 0.5rem;
+            padding-left: 0.8rem;
+            padding-right: 0.8rem;
+        }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 # =========================
 # Config
@@ -304,6 +324,15 @@ def looks_like_voice_session_complete(messages) -> bool:
             return True
 
     return False
+
+
+def looks_like_greeting_only(text: str) -> bool:
+    t = normalize_text(text)
+    greetings = {
+        "hello", "hi", "hey", "good morning", "good afternoon", "good evening",
+        "hello there", "hi there"
+    }
+    return t in greetings
 
 
 def resolve_random_selection(selected_age: str, selected_system: str):
@@ -679,6 +708,9 @@ def run_text_state_machine(user_text: str):
             st.session_state.text_phase = "await_preceptor_choice"
             return TEXT_PRECEPTOR_INVITE
 
+        if looks_like_greeting_only(user_text):
+            return f"Hello doctor, I'm {case_data['caregiver_name']}, {case_data['child_name']}'s {case_data['caregiver_role']}."
+
         response = client.responses.create(
             model="gpt-4.1-mini",
             instructions=build_caregiver_history_instructions(case_data),
@@ -692,15 +724,7 @@ def run_text_state_machine(user_text: str):
             return TEXT_DIAGNOSIS_QUESTION
         if is_no(user_text):
             st.session_state.text_phase = "caregiver"
-            response = client.responses.create(
-                model="gpt-4.1-mini",
-                instructions=build_caregiver_history_instructions(case_data),
-                input=[
-                    {"role": "system", "content": "The learner chose not to move to preceptor mode. Continue in caregiver role."},
-                    *st.session_state.messages,
-                ],
-            )
-            return response.output_text.strip()
+            return "Okay, we can continue with the history."
         return "Please answer yes or no."
 
     if phase == "await_diagnosis_answer":
@@ -809,21 +833,17 @@ st.info(WELCOME_TEXT)
 if not st.session_state.case_data and not st.session_state.messages:
     st.markdown("### Session setup")
 
-    col1, col2 = st.columns(2)
+    selected_study_number = st.selectbox(
+        "Choose study number",
+        STUDY_NUMBER_OPTIONS,
+        key="selected_study_number",
+    )
 
-    with col1:
-        selected_study_number = st.selectbox(
-            "Choose study number",
-            STUDY_NUMBER_OPTIONS,
-            key="selected_study_number",
-        )
-
-    with col2:
-        selected_mode = st.selectbox(
-            "Choose interaction mode",
-            INTERACTION_MODES,
-            key="interaction_mode",
-        )
+    selected_mode = st.selectbox(
+        "Choose interaction mode",
+        INTERACTION_MODES,
+        key="interaction_mode",
+    )
 
     if selected_study_number != "Please select study number":
         st.markdown(f"**Study number selected:** {selected_study_number}")
@@ -835,21 +855,17 @@ if not st.session_state.case_data and not st.session_state.messages:
     else:
         st.session_state.study_number_confirmed = False
 
-    col3, col4 = st.columns(2)
+    selected_age = st.selectbox(
+        "Choose age group",
+        AGE_OPTIONS,
+        key="selected_age",
+    )
 
-    with col3:
-        selected_age = st.selectbox(
-            "Choose age group",
-            AGE_OPTIONS,
-            key="selected_age",
-        )
-
-    with col4:
-        selected_system = st.selectbox(
-            "Choose system",
-            SYSTEM_OPTIONS,
-            key="selected_system",
-        )
+    selected_system = st.selectbox(
+        "Choose system",
+        SYSTEM_OPTIONS,
+        key="selected_system",
+    )
 
     if st.button("Start new case", use_container_width=True):
         if selected_study_number == "Please select study number":
@@ -874,6 +890,12 @@ if not st.session_state.case_data and not st.session_state.messages:
                 st.session_state.resolved_age = resolved_age
                 st.session_state.resolved_system = resolved_system
                 st.session_state.transcript_download_name = f"transcript_{selected_study_number}_{session_id}.txt"
+
+                if selected_mode == "Text only":
+                    st.session_state.messages = [
+                        {"role": "assistant", "content": case_data["opening_line"]}
+                    ]
+
                 st.rerun()
             except Exception as e:
                 st.error(f"Could not generate case: {e}")
