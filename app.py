@@ -19,13 +19,17 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {
-        background: white !important;
-        color: black !important;
+    :root {
+        color-scheme: light !important;
+    }
+
+    html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"], .main {
+        background: #ffffff !important;
+        color: #111111 !important;
     }
 
     [data-testid="stHeader"] {
-        background: white !important;
+        background: #ffffff !important;
     }
 
     [data-testid="stToolbar"] {
@@ -36,32 +40,46 @@ st.markdown(
         padding-top: 1rem;
         padding-bottom: 2rem;
         max-width: 820px;
+        background: #ffffff !important;
     }
 
-    p, div, label, span, h1, h2, h3, h4 {
-        color: black !important;
+    p, div, label, span, h1, h2, h3, h4, h5 {
+        color: #111111 !important;
     }
 
     [data-testid="stChatMessageContent"] {
-        color: black !important;
+        color: #111111 !important;
+    }
+
+    [data-testid="stMarkdownContainer"] {
+        color: #111111 !important;
     }
 
     [data-baseweb="select"] > div {
-        background: white !important;
-        color: black !important;
+        background: #ffffff !important;
+        color: #111111 !important;
     }
 
     input, textarea {
-        background: white !important;
-        color: black !important;
+        background: #ffffff !important;
+        color: #111111 !important;
+    }
+
+    section[data-testid="stSidebar"] {
+        background: #ffffff !important;
     }
 
     @media (max-width: 768px) {
+        html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"], .main {
+            background: #ffffff !important;
+        }
+
         .main .block-container {
             padding-top: 0.5rem;
             padding-left: 0.9rem;
             padding-right: 0.9rem;
             padding-bottom: 2rem;
+            background: #ffffff !important;
         }
     }
     </style>
@@ -621,7 +639,7 @@ def build_voice_url(session_id: str):
         "opening_line": st.session_state.case_data["opening_line"],
         "session_id": session_id,
         "study_number": st.session_state.study_number,
-        "interaction_mode": st.session_state.interaction_mode,
+        "interaction_mode": st.session_state.active_mode,
         "return_url": STREAMLIT_APP_URL,
     }
     return f"{VOICE_SERVER_BASE_URL}/?{urllib.parse.urlencode(query)}"
@@ -665,6 +683,7 @@ def reset_case_state():
     st.session_state.resolved_age = None
     st.session_state.resolved_system = None
     st.session_state.transcript_download_name = None
+    st.session_state.active_mode = None
 
 
 def apply_imported_messages(imported_obj, session_id=None, status_message="Voice transcript imported automatically."):
@@ -691,6 +710,7 @@ def apply_imported_messages(imported_obj, session_id=None, status_message="Voice
     st.session_state.presentation_done = looks_like_voice_session_complete(imported_messages)
     st.session_state.mode = "post_presentation" if st.session_state.presentation_done else "caregiver"
     st.session_state.text_phase = "post_presentation" if st.session_state.presentation_done else "caregiver"
+    st.session_state.active_mode = "Realtime voice"
 
     set_status("success", status_message)
 
@@ -719,11 +739,6 @@ def build_reflection_text():
         st.session_state.reflection_text.strip(),
     ]
     return "\n".join(lines)
-
-
-def trigger_preceptor_transition():
-    st.session_state.text_phase = "await_preceptor_choice"
-    st.session_state.messages.append({"role": "assistant", "content": TEXT_PRECEPTOR_INVITE})
 
 
 def run_text_state_machine(user_text: str):
@@ -796,6 +811,7 @@ defaults = {
     "selected_system": SYSTEM_OPTIONS[0],
     "selected_study_number": STUDY_NUMBER_OPTIONS[0],
     "interaction_mode": INTERACTION_MODES[0],
+    "active_mode": None,
     "study_number": None,
     "last_voice_import_status": None,
     "study_number_confirmed": False,
@@ -844,6 +860,7 @@ if import_voice_flag == "1":
                 st.session_state.presentation_done = True
                 st.session_state.mode = "post_presentation"
                 st.session_state.text_phase = "post_presentation"
+                st.session_state.active_mode = "Realtime voice"
 
     clear_return_query_params()
     st.rerun()
@@ -917,6 +934,7 @@ if not st.session_state.case_data and not st.session_state.messages:
                 st.session_state.resolved_age = resolved_age
                 st.session_state.resolved_system = resolved_system
                 st.session_state.transcript_download_name = f"transcript_{selected_study_number}_{session_id}.txt"
+                st.session_state.active_mode = selected_mode
 
                 if selected_mode == "Text only":
                     st.session_state.messages = [
@@ -930,7 +948,11 @@ if not st.session_state.case_data and not st.session_state.messages:
 # =========================
 # Mode-based UI
 # =========================
-if st.session_state.case_data and st.session_state.interaction_mode == "Realtime voice" and not st.session_state.messages:
+if (
+    st.session_state.case_data
+    and st.session_state.active_mode == "Realtime voice"
+    and not st.session_state.messages
+):
     st.markdown("### Realtime voice mode")
     voice_url = build_voice_url(st.session_state.current_session_id)
     st.link_button("Open realtime voice case", voice_url, use_container_width=True)
@@ -962,7 +984,7 @@ elif isinstance(status_value, str) and status_value.strip():
 show_live_transcript = (
     st.session_state.case_data
     and not st.session_state.presentation_done
-    and st.session_state.interaction_mode == "Text only"
+    and st.session_state.active_mode == "Text only"
 )
 
 if show_live_transcript:
@@ -972,24 +994,11 @@ if show_live_transcript:
             st.write(m["content"])
 
 # =========================
-# Finish history button
-# =========================
-if (
-    st.session_state.case_data
-    and st.session_state.interaction_mode == "Text only"
-    and st.session_state.mode != "post_presentation"
-    and st.session_state.text_phase == "caregiver"
-):
-    if st.button("Finish history", use_container_width=True):
-        trigger_preceptor_transition()
-        st.rerun()
-
-# =========================
 # Text chat mode
 # =========================
 if (
     st.session_state.case_data
-    and st.session_state.interaction_mode == "Text only"
+    and st.session_state.active_mode == "Text only"
     and st.session_state.mode != "post_presentation"
 ):
     if prompt := st.chat_input("Type your response…"):
