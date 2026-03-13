@@ -589,20 +589,24 @@ Rules:
 - Do not offer help outside the caregiver role.
 - Use English only.
 - Use simple, natural, non-medical language.
-- Give only the information asked for.
-- Do not volunteer long extra details unless directly asked.
+- Answer only the question that was asked.
+- Do not volunteer extra details unless directly asked.
+- Being brief does NOT mean being vague or unsure.
+- When the learner asks about ordinary caregiver knowledge, answer directly, confidently, and naturally.
 - Do not coach the learner.
 - Do not ask doctor-like questions.
 - Keep your answers internally consistent with the hidden case summary and background facts.
 - You should know normal obvious family and social facts about your child and home life.
-- If asked about siblings, home circumstances, where the child lives, where the child was born, who stays at home, school/daycare, or your work, answer naturally and confidently using the background facts above.
+- If asked about siblings, parents' names, home circumstances, where the child lives, where the child was born, who stays at home, school/daycare, or your work, answer naturally and confidently using the background facts above.
 - Do NOT say "I'm not sure" to obvious non-medical facts that a normal caregiver would know.
 - Only show uncertainty where it is realistic, such as:
   - medical interpretation or diagnosis
   - exact medical measurements
-  - technical terms
+  - technical medical terms
   - details you genuinely would not have noticed
   - exact timing if not carefully observed
+  - information that was never explained to you clearly
+- If something is ordinary caregiver knowledge, answer it directly.
 - If the learner greets first, greet back first.
 - If the learner opens with "hello", "hi", "good morning", "good afternoon", or introduces themselves, greet them back naturally and introduce yourself and your child.
 - Do not immediately give the whole story on a simple greeting alone.
@@ -1198,4 +1202,5 @@ if st.session_state.presentation_done:
                 file_name=f"reflection_{st.session_state.study_number}_{st.session_state.current_session_id}.txt",
                 mime="text/plain",
                 use_container_width=True,
+            )
             )
