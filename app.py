@@ -242,9 +242,17 @@ Use exactly these keys:
 - caregiver_gender
 - caregiver_role
 - child_name
+- child_age
+- child_sex
 - presenting_complaint
 - case_summary
 - opening_line
+- siblings
+- residence
+- birth_place
+- household_structure
+- school_or_daycare
+- caregiver_occupation
 
 Rules:
 - South African paediatric context
@@ -262,6 +270,14 @@ Rules:
 - Child names must vary naturally
 - Do not use the same caregiver name and child name together repeatedly
 - Make the presenting complaint and summary fit the age group and system requested
+- Populate the social/background fields realistically:
+  - siblings should be a short natural sentence, e.g. "He has one older sister, Amahle, who is 6 years old."
+  - residence should say where they live in a realistic South African way
+  - birth_place should be a realistic place of birth or hospital
+  - household_structure should say who lives at home
+  - school_or_daycare should say creche/daycare/school status or "not yet in school"
+  - caregiver_occupation should be simple and realistic
+- The background facts must be internally consistent and easy for a caregiver to know.
 """
 
 # =========================
@@ -398,9 +414,18 @@ def sanitize_case_data(data: dict) -> dict:
     caregiver_role = str(data.get("caregiver_role", "")).strip().lower()
     caregiver_name = str(data.get("caregiver_name", "")).strip()
     child_name = str(data.get("child_name", "")).strip()
+    child_age = str(data.get("child_age", "")).strip()
+    child_sex = str(data.get("child_sex", "")).strip().lower()
     presenting_complaint = str(data.get("presenting_complaint", "")).strip()
     case_summary = str(data.get("case_summary", "")).strip()
     opening_line = str(data.get("opening_line", "")).strip()
+
+    siblings = str(data.get("siblings", "")).strip()
+    residence = str(data.get("residence", "")).strip()
+    birth_place = str(data.get("birth_place", "")).strip()
+    household_structure = str(data.get("household_structure", "")).strip()
+    school_or_daycare = str(data.get("school_or_daycare", "")).strip()
+    caregiver_occupation = str(data.get("caregiver_occupation", "")).strip()
 
     if caregiver_gender not in {"female", "male"}:
         caregiver_gender = "female"
@@ -414,18 +439,45 @@ def sanitize_case_data(data: dict) -> dict:
         caregiver_name = "Zanele" if caregiver_gender == "female" else "Sibusiso"
     if not child_name:
         child_name = "Musa"
+    if not child_age:
+        child_age = "3 years"
+    if child_sex not in {"male", "female"}:
+        child_sex = "male"
     if not presenting_complaint:
         presenting_complaint = "fever"
+    if not case_summary:
+        case_summary = f"{child_name} is a child presenting with {presenting_complaint}."
     if not opening_line:
         opening_line = f"Hello doctor, I'm {caregiver_name}, {child_name}'s {caregiver_role}."
+
+    if not siblings:
+        siblings = "He has one older sister, Ayanda, who is 6 years old." if child_sex == "male" else "She has one older brother, Luyanda, who is 6 years old."
+    if not residence:
+        residence = "We live in Soweto with family."
+    if not birth_place:
+        birth_place = "He was born at Chris Hani Baragwanath Academic Hospital." if child_sex == "male" else "She was born at Chris Hani Baragwanath Academic Hospital."
+    if not household_structure:
+        household_structure = "At home it is me, the child, and one sibling."
+    if not school_or_daycare:
+        school_or_daycare = "He goes to crèche during the week." if child_sex == "male" else "She goes to crèche during the week."
+    if not caregiver_occupation:
+        caregiver_occupation = "I work as a shop assistant."
 
     data["caregiver_gender"] = caregiver_gender
     data["caregiver_role"] = caregiver_role
     data["caregiver_name"] = caregiver_name
     data["child_name"] = child_name
+    data["child_age"] = child_age
+    data["child_sex"] = child_sex
     data["presenting_complaint"] = presenting_complaint
     data["case_summary"] = case_summary
     data["opening_line"] = opening_line
+    data["siblings"] = siblings
+    data["residence"] = residence
+    data["birth_place"] = birth_place
+    data["household_structure"] = household_structure
+    data["school_or_daycare"] = school_or_daycare
+    data["caregiver_occupation"] = caregiver_occupation
 
     return data
 
@@ -468,16 +520,23 @@ System: {system}
         "caregiver_gender",
         "caregiver_role",
         "child_name",
+        "child_age",
+        "child_sex",
         "presenting_complaint",
         "case_summary",
         "opening_line",
+        "siblings",
+        "residence",
+        "birth_place",
+        "household_structure",
+        "school_or_daycare",
+        "caregiver_occupation",
     ]
     for key in required:
         if key not in data:
             raise ValueError(f"Generated case missing key: {key}")
 
     data = sanitize_case_data(data)
-
     return data
 
 
@@ -485,13 +544,22 @@ def build_caregiver_history_instructions(case_data):
     return f"""
 You are simulating a realistic caregiver in a paediatric history-taking station.
 
-Hidden case summary:
+Hidden medical case summary:
 {case_data["case_summary"]}
 
-Caregiver name: {case_data["caregiver_name"]}
-Caregiver role: {case_data["caregiver_role"]}
-Child name: {case_data["child_name"]}
-Presenting complaint: {case_data["presenting_complaint"]}
+Known caregiver/background facts that you should know comfortably and consistently:
+- Caregiver name: {case_data["caregiver_name"]}
+- Caregiver role: {case_data["caregiver_role"]}
+- Caregiver occupation: {case_data["caregiver_occupation"]}
+- Child name: {case_data["child_name"]}
+- Child age: {case_data["child_age"]}
+- Child sex: {case_data["child_sex"]}
+- Presenting complaint: {case_data["presenting_complaint"]}
+- Siblings: {case_data["siblings"]}
+- Residence: {case_data["residence"]}
+- Birth place: {case_data["birth_place"]}
+- Household structure: {case_data["household_structure"]}
+- School/daycare: {case_data["school_or_daycare"]}
 
 Rules:
 - Stay fully in caregiver role.
@@ -504,15 +572,24 @@ Rules:
 - Use English only.
 - Use simple, natural, non-medical language.
 - Give only the information asked for.
-- Do not volunteer extra details unless directly asked.
+- Do not volunteer long extra details unless directly asked.
 - Do not coach the learner.
 - Do not ask doctor-like questions.
+- Keep your answers internally consistent with the hidden case summary and background facts.
+- You should know normal obvious family and social facts about your child and home life.
+- If asked about siblings, home circumstances, where the child lives, where the child was born, who stays at home, school/daycare, or your work, answer naturally and confidently using the background facts above.
+- Do NOT say "I'm not sure" to obvious non-medical facts that a normal caregiver would know.
+- Only show uncertainty where it is realistic, such as:
+  - medical interpretation or diagnosis
+  - exact medical measurements
+  - technical terms
+  - details you genuinely would not have noticed
+  - exact timing if not carefully observed
 - If the learner greets first, greet back first.
 - If the learner opens with "hello", "hi", "good morning", "good afternoon", or introduces themselves, greet them back naturally and introduce yourself and your child.
 - Do not immediately give the whole story on a simple greeting alone.
 - If the learner asks broad opening clinical questions like "What brought you in?", "What seems to be the problem?", "Tell me about your child", or "What is the problem with your child?", answer with the main complaint naturally.
 - If the learner asks something unclear, ask briefly for clarification.
-- Keep your answers internally consistent with the hidden case summary.
 - If the learner clearly indicates they are finished, respond only with: "{TEXT_PRECEPTOR_INVITE}"
 """
 
@@ -634,9 +711,17 @@ def build_voice_url(session_id: str):
         "caregiver_gender": st.session_state.case_data["caregiver_gender"],
         "caregiver_role": st.session_state.case_data["caregiver_role"],
         "child_name": st.session_state.case_data["child_name"],
+        "child_age": st.session_state.case_data["child_age"],
+        "child_sex": st.session_state.case_data["child_sex"],
         "presenting_complaint": st.session_state.case_data["presenting_complaint"],
         "case_summary": st.session_state.case_data["case_summary"],
         "opening_line": st.session_state.case_data["opening_line"],
+        "siblings": st.session_state.case_data["siblings"],
+        "residence": st.session_state.case_data["residence"],
+        "birth_place": st.session_state.case_data["birth_place"],
+        "household_structure": st.session_state.case_data["household_structure"],
+        "school_or_daycare": st.session_state.case_data["school_or_daycare"],
+        "caregiver_occupation": st.session_state.case_data["caregiver_occupation"],
         "session_id": session_id,
         "study_number": st.session_state.study_number,
         "interaction_mode": st.session_state.active_mode,
