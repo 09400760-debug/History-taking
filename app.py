@@ -118,13 +118,11 @@ VOICE_COMPLETION_HINTS = [
     "session ended because the 30 minute limit was reached. returning for feedback now",
 ]
 
-INTERACTION_MODES = [
-    "Please select interaction mode",
+VISIBLE_INTERACTION_MODES = [
     "Text only",
     "Realtime voice",
 ]
 
-# What the student sees on screen
 VISIBLE_AGE_OPTIONS = [
     "Random",
     "Neonate",
@@ -145,7 +143,6 @@ VISIBLE_SYSTEM_OPTIONS = [
     "Respiratory",
 ]
 
-# Wider pool used when Random is selected
 RANDOM_AGE_POOL = [
     "Neonate",
     "Infant",
@@ -913,10 +910,10 @@ defaults = {
     "detailed_assessment_generated": None,
     "mode": "caregiver",
     "text_phase": "caregiver",
+    "selected_mode": "Text only",
     "selected_age": "Random",
     "selected_system": "Random",
     "selected_study_number": STUDY_NUMBER_OPTIONS[0],
-    "interaction_mode": INTERACTION_MODES[0],
     "active_mode": None,
     "study_number": None,
     "last_voice_import_status": None,
@@ -989,12 +986,6 @@ if not st.session_state.case_data and not st.session_state.messages:
         key="selected_study_number",
     )
 
-    selected_mode = st.selectbox(
-        "Choose interaction mode",
-        INTERACTION_MODES,
-        key="interaction_mode",
-    )
-
     if selected_study_number != "Please select study number":
         st.markdown(f"**Study number selected:** {selected_study_number}")
         confirm_checkbox = st.checkbox(
@@ -1004,6 +995,14 @@ if not st.session_state.case_data and not st.session_state.messages:
         st.session_state.study_number_confirmed = bool(confirm_checkbox)
     else:
         st.session_state.study_number_confirmed = False
+
+    st.markdown("**Choose interaction mode**")
+    selected_mode = st.radio(
+        "Choose interaction mode",
+        VISIBLE_INTERACTION_MODES,
+        key="selected_mode",
+        label_visibility="collapsed",
+    )
 
     st.markdown("**Choose age group**")
     selected_age = st.radio(
@@ -1026,8 +1025,6 @@ if not st.session_state.case_data and not st.session_state.messages:
             st.warning("Please select a study number first.")
         elif not st.session_state.study_number_confirmed:
             st.warning("Please confirm the study number before starting.")
-        elif selected_mode == INTERACTION_MODES[0]:
-            st.warning("Please select an interaction mode first.")
         else:
             try:
                 resolved_age, resolved_system = resolve_random_selection(selected_age, selected_system)
