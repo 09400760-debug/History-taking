@@ -9,21 +9,59 @@ import requests
 import streamlit as st
 from openai import OpenAI
 
-st.set_page_config(page_title="History-taking practice bot", page_icon="🩺", layout="centered")
+st.set_page_config(
+    page_title="History-taking practice bot",
+    page_icon="🩺",
+    layout="centered",
+    initial_sidebar_state="collapsed",
+)
 
 st.markdown(
     """
     <style>
-    .block-container {
+    html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {
+        background: white !important;
+        color: black !important;
+    }
+
+    [data-testid="stHeader"] {
+        background: white !important;
+    }
+
+    [data-testid="stToolbar"] {
+        right: 0.5rem;
+    }
+
+    .main .block-container {
         padding-top: 1rem;
         padding-bottom: 2rem;
         max-width: 820px;
     }
+
+    p, div, label, span, h1, h2, h3, h4 {
+        color: black !important;
+    }
+
+    [data-testid="stChatMessageContent"] {
+        color: black !important;
+    }
+
+    [data-baseweb="select"] > div {
+        background: white !important;
+        color: black !important;
+    }
+
+    input, textarea {
+        background: white !important;
+        color: black !important;
+    }
+
     @media (max-width: 768px) {
-        .block-container {
+        .main .block-container {
             padding-top: 0.5rem;
-            padding-left: 0.8rem;
-            padding-right: 0.8rem;
+            padding-left: 0.9rem;
+            padding-right: 0.9rem;
+            padding-bottom: 2rem;
         }
     }
     </style>
@@ -206,17 +244,6 @@ Rules:
 - Child names must vary naturally
 - Do not use the same caregiver name and child name together repeatedly
 - Make the presenting complaint and summary fit the age group and system requested
-
-Example format:
-{
-  "caregiver_name": "Zanele",
-  "caregiver_gender": "female",
-  "caregiver_role": "mother",
-  "child_name": "Musa",
-  "presenting_complaint": "fever and poor feeding",
-  "case_summary": "A 7-month-old with 2 days of fever, poor feeding and irritability, no seizures, and one episode of vomiting.",
-  "opening_line": "Hello doctor, I'm Zanele, Musa's mother."
-}
 """
 
 # =========================
