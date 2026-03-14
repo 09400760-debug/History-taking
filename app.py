@@ -113,9 +113,6 @@ TEXT_DIFFERENTIALS_QUESTION = "What are your main differential diagnoses?"
 TEXT_FINAL_LINE = "Thank you. I will now generate your feedback."
 
 VOICE_COMPLETION_HINTS = [
-    normalize_hint if False else ""
-]
-VOICE_COMPLETION_HINTS = [
     "thank you i will now generate your feedback",
     "session ended due to inactivity returning for feedback now",
     "session ended because the 30 minute limit was reached returning for feedback now",
@@ -610,8 +607,17 @@ Rules:
   - exact timing if not carefully observed
   - information that was never explained to you clearly
 - If something is ordinary caregiver knowledge, answer it directly.
-- If the learner greets first, greet back briefly.
+- If the learner greets first, greet back briefly as the caregiver.
 - Do not immediately give the whole story on a simple greeting alone.
+- Never behave like a doctor, receptionist, or assistant.
+- Never say: "How can I help you?", "How can I help you and your child today?", "What can I help you with?", "What seems to be the problem today?", or similar clinician-style phrases.
+- Never ask the learner a clinical opening question.
+- After a simple greeting, reply briefly and wait.
+- Good examples:
+  "Good afternoon, doctor."
+  "Hello, doctor."
+  "Good afternoon."
+  "Hello doctor."
 - If the learner asks broad opening clinical questions like "What brought you in?", "What seems to be the problem?", "Tell me about your child", or "What is the problem with your child?", answer with the main complaint naturally.
 - If the learner asks something unclear, ask briefly for clarification.
 - If the learner clearly indicates they are finished, respond only with: "{TEXT_PRECEPTOR_INVITE}"
@@ -860,7 +866,7 @@ def run_text_state_machine(user_text: str):
             return TEXT_PRECEPTOR_INVITE
 
         if looks_like_greeting_only(user_text):
-            return f"Hello doctor."
+            return "Good afternoon, doctor." if "afternoon" in normalize_text(user_text) else "Hello, doctor."
 
         response = client.responses.create(
             model="gpt-4.1-mini",
