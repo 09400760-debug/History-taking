@@ -107,15 +107,18 @@ WELCOME_TEXT = (
 )
 
 TEXT_PRECEPTOR_INVITE = "Would you like to move to preceptor mode?"
-TEXT_DIAGNOSIS_QUESTION = "What is your diagnosis?"
-TEXT_DIFFERENTIALS_QUESTION = "What are your differential diagnoses?"
-TEXT_FEEDBACK_QUESTION = "Would you like to receive your assessment now?"
-TEXT_FINAL_YES = "Thank you. I will now generate your feedback."
-TEXT_FINAL_NO = "Okay. You can request your feedback when you are ready."
+TEXT_SUMMARY_QUESTION = "Please summarise the case briefly in one or two sentences."
+TEXT_DIAGNOSIS_QUESTION = "What is your most likely diagnosis?"
+TEXT_DIFFERENTIALS_QUESTION = "What are your main differential diagnoses?"
+TEXT_FINAL_LINE = "Thank you. I will now generate your feedback."
 
 VOICE_COMPLETION_HINTS = [
-    "session ended due to inactivity. returning for feedback now",
-    "session ended because the 30 minute limit was reached. returning for feedback now",
+    normalize_hint if False else ""
+]
+VOICE_COMPLETION_HINTS = [
+    "thank you i will now generate your feedback",
+    "session ended due to inactivity returning for feedback now",
+    "session ended because the 30 minute limit was reached returning for feedback now",
 ]
 
 VISIBLE_INTERACTION_MODES = [
@@ -196,7 +199,7 @@ Assess the student on:
 9. Family history
 10. Social history where relevant
 11. Communication and logical flow
-12. Preceptor stage: diagnosis and differential diagnoses
+12. Preceptor stage: summary, diagnosis, and differential diagnoses
 
 Important:
 - Use transcript evidence only.
@@ -226,7 +229,7 @@ Assess the student strictly on:
 9. Family history
 10. Social history where relevant
 11. Communication and logical flow
-12. Preceptor stage: diagnosis and differential diagnoses
+12. Preceptor stage: summary, diagnosis, and differential diagnoses
 
 Important strict principles:
 - Do not mark generously.
@@ -398,7 +401,7 @@ def looks_like_voice_session_complete(messages) -> bool:
     if not assistant_lines:
         return False
 
-    for line in reversed(assistant_lines[-8:]):
+    for line in reversed(assistant_lines[-10:]):
         if any(hint in line for hint in VOICE_COMPLETION_HINTS):
             return True
 
@@ -607,8 +610,7 @@ Rules:
   - exact timing if not carefully observed
   - information that was never explained to you clearly
 - If something is ordinary caregiver knowledge, answer it directly.
-- If the learner greets first, greet back first.
-- If the learner opens with "hello", "hi", "good morning", "good afternoon", or introduces themselves, greet them back naturally and introduce yourself and your child.
+- If the learner greets first, greet back briefly.
 - Do not immediately give the whole story on a simple greeting alone.
 - If the learner asks broad opening clinical questions like "What brought you in?", "What seems to be the problem?", "Tell me about your child", or "What is the problem with your child?", answer with the main complaint naturally.
 - If the learner asks something unclear, ask briefly for clarification.
@@ -858,7 +860,7 @@ def run_text_state_machine(user_text: str):
             return TEXT_PRECEPTOR_INVITE
 
         if looks_like_greeting_only(user_text):
-            return f"Hello doctor, I'm {case_data['caregiver_name']}, {case_data['child_name']}'s {case_data['caregiver_role']}."
+            return f"Hello doctor."
 
         response = client.responses.create(
             model="gpt-4.1-mini",
@@ -869,35 +871,27 @@ def run_text_state_machine(user_text: str):
 
     if phase == "await_preceptor_choice":
         if is_yes(user_text):
-            st.session_state.text_phase = "await_diagnosis_answer"
-            return TEXT_DIAGNOSIS_QUESTION
+            st.session_state.text_phase = "await_summary_answer"
+            return TEXT_SUMMARY_QUESTION
         if is_no(user_text):
             st.session_state.text_phase = "caregiver"
             return "Okay, we can continue with the history."
         return "Please answer yes or no."
+
+    if phase == "await_summary_answer":
+        st.session_state.text_phase = "await_diagnosis_answer"
+        return TEXT_DIAGNOSIS_QUESTION
 
     if phase == "await_diagnosis_answer":
         st.session_state.text_phase = "await_differentials_answer"
         return TEXT_DIFFERENTIALS_QUESTION
 
     if phase == "await_differentials_answer":
-        st.session_state.text_phase = "await_feedback_choice"
-        return TEXT_FEEDBACK_QUESTION
-
-    if phase == "await_feedback_choice":
-        if is_yes(user_text):
-            st.session_state.text_phase = "post_presentation"
-            st.session_state.presentation_done = True
-            st.session_state.mode = "post_presentation"
-            st.session_state.case_ended_at = now_iso()
-            return TEXT_FINAL_YES
-        if is_no(user_text):
-            st.session_state.text_phase = "post_presentation"
-            st.session_state.presentation_done = True
-            st.session_state.mode = "post_presentation"
-            st.session_state.case_ended_at = now_iso()
-            return TEXT_FINAL_NO
-        return "Please answer yes or no."
+        st.session_state.text_phase = "post_presentation"
+        st.session_state.presentation_done = True
+        st.session_state.mode = "post_presentation"
+        st.session_state.case_ended_at = now_iso()
+        return TEXT_FINAL_LINE
 
     return "Conversation complete."
 
@@ -1116,7 +1110,7 @@ if (
         assistant_text = run_text_state_machine(prompt)
         st.session_state.messages.append({"role": "assistant", "content": assistant_text})
 
-        if normalize_text(assistant_text) == normalize_text(TEXT_FINAL_YES):
+        if normalize_text(assistant_text) == normalize_text(TEXT_FINAL_LINE):
             with st.spinner("Generating brief feedback..."):
                 st.session_state.brief_assessment_generated = call_assessment(
                     st.session_state.messages,
