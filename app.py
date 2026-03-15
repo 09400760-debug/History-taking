@@ -114,8 +114,6 @@ TEXT_FINAL_LINE = "Thank you. I will now generate your feedback."
 
 VOICE_COMPLETION_HINTS = [
     "thank you i will now generate your feedback",
-    "session ended due to inactivity returning for feedback now",
-    "session ended because the 30 minute limit was reached returning for feedback now",
 ]
 
 VISIBLE_INTERACTION_MODES = [
@@ -628,7 +626,77 @@ def transcript_from_messages(messages):
     return "\n".join([f'{m["role"]}: {m["content"]}' for m in messages])
 
 
+def get_student_messages(messages):
+    return [
+        str(m.get("content", "")).strip()
+        for m in messages
+        if m.get("role") == "user" and str(m.get("content", "")).strip()
+    ]
+
+
+def is_meaningful_student_text(text: str) -> bool:
+    t = normalize_text(text)
+
+    trivial = {
+        "", "hello", "hi", "hey", "good morning", "good afternoon", "good evening",
+        "okay", "ok", "yes", "no", "sure", "thanks", "thank you"
+    }
+    if t in trivial:
+        return False
+
+    word_count = len([w for w in re.split(r"\s+", t) if w])
+    return word_count >= 4
+
+
+def has_meaningful_interaction(messages) -> bool:
+    student_messages = get_student_messages(messages)
+
+    meaningful_turns = [
+        msg for msg in student_messages
+        if is_meaningful_student_text(msg)
+    ]
+
+    total_student_words = sum(
+        len([w for w in re.split(r"\s+", msg.strip()) if w])
+        for msg in student_messages
+    )
+
+    return len(meaningful_turns) >= 2 or total_student_words >= 12
+
+
+def insufficient_interaction_feedback(detailed: bool = False) -> str:
+    if detailed:
+        return (
+            "Strengths\n"
+            "No assessable strengths could be identified because there was insufficient student interaction.\n\n"
+            "Priority areas for improvement\n"
+            "Complete the history-taking interaction before requesting assessment.\n\n"
+            "Missed opportunities\n"
+            "The session did not contain enough student questioning or engagement to assess history-taking performance.\n\n"
+            "Domain-based scoring comments\n"
+            "Scoring was not possible because there was insufficient interaction.\n\n"
+            "Overall comment\n"
+            "No assessment possible: there was insufficient student interaction to assess this session.\n\n"
+            "Overall performance grade (1-5) with label\n"
+            "Not assessable - no grade awarded"
+        )
+
+    return (
+        "Key strengths\n"
+        "No assessable strengths could be identified because there was insufficient student interaction.\n\n"
+        "Priority improvement points\n"
+        "Complete the history-taking interaction before requesting assessment.\n\n"
+        "Overall comment\n"
+        "No assessment possible: there was insufficient student interaction to assess this session.\n\n"
+        "Overall performance grade (1-5) with label\n"
+        "Not assessable - no grade awarded"
+    )
+
+
 def call_assessment(messages, detailed: bool = False):
+    if not has_meaningful_interaction(messages):
+        return insufficient_interaction_feedback(detailed=detailed)
+
     transcript = transcript_from_messages(messages)
     rubric_text = DETAILED_RUBRIC_TEXT if detailed else BRIEF_RUBRIC_TEXT
 
@@ -968,6 +1036,8 @@ if import_voice_flag == "1":
                 st.session_state.mode = "post_presentation"
                 st.session_state.text_phase = "post_presentation"
                 st.session_state.active_mode = "Realtime voice"
+                if not st.session_state.case_ended_at:
+                    st.session_state.case_ended_at = now_iso()
 
     clear_return_query_params()
     st.rerun()
@@ -1212,3 +1282,4 @@ if st.session_state.presentation_done:
                 mime="text/plain",
                 use_container_width=True,
             )
+
