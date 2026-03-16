@@ -9,13 +9,7 @@ import requests
 import streamlit as st
 from openai import OpenAI
 
-from dynamic_rubric import (
-    choose_case,
-    build_case_display_text,
-    build_history_taking_system_prompt,
-    build_assessor_system_prompt,
-    build_assessor_schema,
-)
+from dynamic_rubric import choose_case, build_history_taking_system_prompt, build_assessor_system_prompt, build_assessor_schema
 
 st.set_page_config(
     page_title="History-taking practice bot",
@@ -63,11 +57,6 @@ st.markdown(
         color: #111111 !important;
     }
 
-    [data-baseweb="select"] > div {
-        background: #ffffff !important;
-        color: #111111 !important;
-    }
-
     input, textarea {
         background: #ffffff !important;
         color: #111111 !important;
@@ -110,8 +99,8 @@ STREAMLIT_APP_URL = "https://history-takinggit-eexzk8appdm3vzfej2vtuzn.streamlit
 APP_TITLE = "🩺 History-taking practice bot"
 WELCOME_TEXT = (
     "This space gives you opportunities to practise paediatric history taking. "
-    "Select your study number, choose how you would like to interact, then choose an age group "
-    "and system or let the bot surprise you with a random case."
+    "The aim is to assess how well you build a diagnosis through a thorough relevant history. "
+    "This is not a management station."
 )
 
 TEXT_PRECEPTOR_INVITE = "Would you like to move to preceptor mode?"
@@ -145,7 +134,6 @@ VISIBLE_SYSTEM_OPTIONS = [
     "Random",
     "Cardiovascular",
     "Gastrointestinal",
-    "Haematological",
     "Musculoskeletal",
     "Neurological",
     "Renal",
@@ -161,26 +149,19 @@ RANDOM_AGE_POOL = [
 ]
 
 RANDOM_SYSTEM_POOL = [
-    "Respiratory",
     "Cardiovascular",
     "Gastrointestinal",
-    "Haematological",
     "Musculoskeletal",
     "Neurological",
     "Renal",
-    "Endocrine",
-    "Infectious diseases",
-    "Nutrition",
-    "Neonatology",
-    "Dermatology",
-    "Rheumatological",
-    "Immunological",
+    "Respiratory",
 ]
 
 STUDY_NUMBER_MAX = 126
 STUDY_NUMBER_OPTIONS = ["Please select study number"] + [
     f"1-{i:03d}" for i in range(1, STUDY_NUMBER_MAX + 1)
 ]
+
 
 # =========================
 # Helpers
@@ -231,9 +212,7 @@ def is_yes(text: str) -> bool:
 
 def is_no(text: str) -> bool:
     t = normalize_text(text)
-    no_values = {
-        "no", "n", "nope", "not now", "later", "no thanks", "not yet"
-    }
+    no_values = {"no", "n", "nope", "not now", "later", "no thanks", "not yet"}
     return t in no_values or t.startswith("no ")
 
 
@@ -256,14 +235,9 @@ def looks_like_finished_history(text: str) -> bool:
         "end history",
         "that is all",
         "that is complete",
-        "that's complete",
-        "thats complete",
         "history complete",
         "we are done",
-        "i am complete",
-        "history is complete",
         "can we move to preceptor",
-        "can we switch to preceptor",
         "move to preceptor",
         "switch to preceptor",
     ]
@@ -280,23 +254,16 @@ def looks_like_voice_session_complete(messages) -> bool:
         if m.get("role") == "assistant"
     ]
 
-    if not assistant_lines:
-        return False
-
     for line in reversed(assistant_lines[-12:]):
         if any(hint in line for hint in VOICE_COMPLETION_HINTS):
             return True
-
     return False
 
 
 def looks_like_greeting_only(text: str) -> bool:
-    t = normalize_text(text)
-    greetings = {
-        "hello", "hi", "hey", "good morning", "good afternoon", "good evening",
-        "hello there", "hi there"
+    return normalize_text(text) in {
+        "hello", "hi", "hey", "good morning", "good afternoon", "good evening", "hello there", "hi there"
     }
-    return t in greetings
 
 
 def resolve_random_selection(selected_age: str, selected_system: str):
@@ -326,7 +293,6 @@ def get_student_messages(messages):
 
 def is_meaningful_student_text(text: str) -> bool:
     t = normalize_text(text)
-
     trivial = {
         "", "hello", "hi", "hey", "good morning", "good afternoon", "good evening",
         "okay", "ok", "yes", "no", "sure", "thanks", "thank you"
@@ -340,23 +306,16 @@ def is_meaningful_student_text(text: str) -> bool:
 
 def has_meaningful_interaction(messages) -> bool:
     student_messages = get_student_messages(messages)
-
-    meaningful_turns = [
-        msg for msg in student_messages
-        if is_meaningful_student_text(msg)
-    ]
-
-    total_student_words = sum(
-        len([w for w in re.split(r"\s+", msg.strip()) if w])
-        for msg in student_messages
-    )
-
+    meaningful_turns = [msg for msg in student_messages if is_meaningful_student_text(msg)]
+    total_student_words = sum(len([w for w in re.split(r"\s+", msg.strip()) if w]) for msg in student_messages)
     return len(meaningful_turns) >= 2 or total_student_words >= 12
 
 
-def insufficient_interaction_feedback_json():
+def insufficient_interaction_feedback_json(case_data):
     return {
         "case_summary": "Insufficient interaction to generate a valid assessment.",
+        "true_case_diagnosis": case_data.get("expected_diagnosis"),
+        "important_expected_differentials": case_data.get("expected_differentials", []),
         "scores": {},
         "raw_score_total": 0,
         "raw_total_possible": 0,
@@ -368,17 +327,20 @@ def insufficient_interaction_feedback_json():
             "Complete the history-taking interaction before requesting assessment."
         ],
         "overall_feedback": (
-            "No assessment possible: there was insufficient student interaction to assess this session."
+            "No valid assessment was possible because there was insufficient interaction to judge the student's "
+            "history-taking or diagnostic reasoning."
         ),
     }
 
 
 def call_assessment(messages, detailed: bool = False):
+    case_data = st.session_state.case_data
+
     if not has_meaningful_interaction(messages):
-        return insufficient_interaction_feedback_json()
+        return insufficient_interaction_feedback_json(case_data)
 
     transcript = transcript_from_messages(messages)
-    assessment_prompt = build_assessor_system_prompt(st.session_state.case_data, detailed=detailed)
+    assessment_prompt = build_assessor_system_prompt(case_data, detailed=detailed)
 
     prompt = f"""
 Assess this paediatric history-taking transcript.
@@ -408,6 +370,8 @@ Transcript:
 
     return {
         "case_summary": "Assessment could not be parsed cleanly, but feedback was generated.",
+        "true_case_diagnosis": case_data.get("expected_diagnosis"),
+        "important_expected_differentials": case_data.get("expected_differentials", []),
         "scores": {},
         "raw_score_total": 0,
         "raw_total_possible": 0,
@@ -450,7 +414,6 @@ def import_voice_transcript(session_id: str | None):
     for line in transcript_lines:
         speaker = str(line.get("speaker", "")).strip()
         text = str(line.get("text", "")).strip()
-
         if not text:
             continue
 
@@ -531,9 +494,7 @@ def reset_case_state():
     st.session_state.resolved_system = None
     st.session_state.transcript_download_name = None
     st.session_state.active_mode = None
-    st.session_state.case_context_text = ""
     st.session_state.caregiver_system_prompt = ""
-    st.session_state.assessor_system_prompt = ""
     st.session_state.assessor_schema = {}
     st.session_state.summary_response = ""
     st.session_state.diagnosis_response = ""
@@ -603,6 +564,17 @@ def render_assessment_json(data: dict, detailed: bool = False):
     score = data.get("final_score_out_of_100")
     if score is not None:
         st.markdown(f"**Final score:** {score}/100")
+
+    true_dx = data.get("true_case_diagnosis")
+    if true_dx:
+        st.markdown("**Most likely diagnosis in this case**")
+        st.write(true_dx)
+
+    diffs = data.get("important_expected_differentials", [])
+    if diffs:
+        st.markdown("**Important differential diagnoses for this case**")
+        for item in diffs:
+            st.write(f"- {item}")
 
     case_summary = data.get("case_summary")
     if case_summary:
@@ -701,33 +673,31 @@ def run_text_state_machine(user_text: str):
         return TEXT_CONFIRM_DIFFERENTIALS
 
     if phase == "confirm_differentials_done":
-        if is_yes(user_text) and "finish" not in normalize_text(user_text):
+        t = normalize_text(user_text)
+
+        continue_markers = {
+            "yes", "yeah", "yes please", "i have more", "more", "continue"
+        }
+        finish_markers = {
+            "no", "finished", "i am finished", "done", "that's all", "thats all"
+        }
+
+        if t in continue_markers:
             st.session_state.text_phase = "await_differentials_answer"
             return "Okay, please continue with your differential diagnoses."
-        if is_yes(user_text) and "finish" in normalize_text(user_text):
-            st.session_state.text_phase = "post_presentation"
-            st.session_state.presentation_done = True
-            st.session_state.mode = "post_presentation"
-            st.session_state.case_ended_at = now_iso()
-            return TEXT_FINAL_LINE
-        if is_no(user_text):
+
+        if t in finish_markers or is_no(user_text):
             st.session_state.text_phase = "post_presentation"
             st.session_state.presentation_done = True
             st.session_state.mode = "post_presentation"
             st.session_state.case_ended_at = now_iso()
             return TEXT_FINAL_LINE
 
-        t = normalize_text(user_text)
-        finish_markers = {"finished", "i am finished", "done", "that's all", "thats all", "no"}
-        if t in finish_markers:
-            st.session_state.text_phase = "post_presentation"
-            st.session_state.presentation_done = True
-            st.session_state.mode = "post_presentation"
-            st.session_state.case_ended_at = now_iso()
-            return TEXT_FINAL_LINE
+        if is_yes(user_text):
+            st.session_state.text_phase = "await_differentials_answer"
+            return "Okay, please continue with your differential diagnoses."
 
-        st.session_state.text_phase = "await_differentials_answer"
-        return "Okay, please continue with your differential diagnoses."
+        return "Please say whether you have more differential diagnoses or whether you are finished."
 
     return "Conversation complete."
 
@@ -760,9 +730,7 @@ defaults = {
     "resolved_age": None,
     "resolved_system": None,
     "transcript_download_name": None,
-    "case_context_text": "",
     "caregiver_system_prompt": "",
-    "assessor_system_prompt": "",
     "assessor_schema": {},
     "summary_response": "",
     "diagnosis_response": "",
@@ -873,18 +841,13 @@ if not st.session_state.case_data and not st.session_state.messages:
                 resolved_age, resolved_system = resolve_random_selection(selected_age, selected_system)
                 case_data = choose_case(requested_system=resolved_system)
 
-                case_context_text = build_case_display_text(case_data)
                 caregiver_system_prompt = build_history_taking_system_prompt(case_data)
-                assessor_system_prompt = build_assessor_system_prompt(case_data, detailed=False)
                 assessor_schema = build_assessor_schema(case_data)
-
                 session_id = str(uuid.uuid4())
 
                 reset_case_state()
                 st.session_state.case_data = case_data
-                st.session_state.case_context_text = case_context_text
                 st.session_state.caregiver_system_prompt = caregiver_system_prompt
-                st.session_state.assessor_system_prompt = assessor_system_prompt
                 st.session_state.assessor_schema = assessor_schema
                 st.session_state.current_session_id = session_id
                 st.session_state.case_started_at = now_iso()
@@ -904,16 +867,13 @@ if not st.session_state.case_data and not st.session_state.messages:
                 st.error(f"Could not generate case: {e}")
 
 # =========================
-# Mode-based UI
+# Voice mode
 # =========================
 if (
     st.session_state.case_data
     and st.session_state.active_mode == "Realtime voice"
     and not st.session_state.messages
 ):
-    st.markdown("### Case Context")
-    st.info(st.session_state.case_context_text)
-
     st.markdown("### Realtime voice mode")
     voice_url = build_voice_url(st.session_state.current_session_id)
     st.link_button("Open realtime voice case", voice_url, use_container_width=True)
@@ -923,7 +883,7 @@ if (
     )
 
 # =========================
-# Show status
+# Status
 # =========================
 status_value = st.session_state.last_voice_import_status
 if isinstance(status_value, dict):
@@ -949,16 +909,13 @@ show_live_transcript = (
 )
 
 if show_live_transcript:
-    st.markdown("### Case Context")
-    st.info(st.session_state.case_context_text)
-
     st.markdown("### Conversation")
     for m in st.session_state.messages:
         with st.chat_message(m["role"]):
             st.write(m["content"])
 
 # =========================
-# Text chat mode
+# Text mode
 # =========================
 if (
     st.session_state.case_data
@@ -988,7 +945,7 @@ elif st.session_state.messages and not st.session_state.case_data:
     st.info("Imported voice transcript loaded.")
 
 # =========================
-# Feedback section
+# Feedback
 # =========================
 if st.session_state.presentation_done:
     st.markdown("### Feedback")
@@ -1042,7 +999,7 @@ if st.session_state.presentation_done and st.session_state.messages:
     )
 
 # =========================
-# Reflection section
+# Reflection
 # =========================
 if st.session_state.presentation_done:
     st.markdown("### Reflection")
