@@ -9,6 +9,14 @@ import requests
 import streamlit as st
 from openai import OpenAI
 
+from dynamic_rubric import (
+    choose_case,
+    build_case_display_text,
+    build_history_taking_system_prompt,
+    build_assessor_system_prompt,
+    build_assessor_schema,
+)
+
 st.set_page_config(
     page_title="History-taking practice bot",
     page_icon="🩺",
@@ -110,6 +118,9 @@ TEXT_PRECEPTOR_INVITE = "Would you like to move to preceptor mode?"
 TEXT_SUMMARY_QUESTION = "Please summarise the case briefly in one or two sentences."
 TEXT_DIAGNOSIS_QUESTION = "What is your most likely diagnosis?"
 TEXT_DIFFERENTIALS_QUESTION = "What are your main differential diagnoses?"
+TEXT_CONFIRM_SUMMARY = "Are you finished with your summary?"
+TEXT_CONFIRM_DIAGNOSIS = "Are you finished with your diagnosis?"
+TEXT_CONFIRM_DIFFERENTIALS = "Do you have any other differential diagnoses, or are you finished?"
 TEXT_FINAL_LINE = "Thank you. I will now generate your feedback."
 
 VOICE_COMPLETION_HINTS = [
@@ -137,7 +148,7 @@ VISIBLE_SYSTEM_OPTIONS = [
     "Haematological",
     "Musculoskeletal",
     "Neurological",
-    "Neurodevelopment",
+    "Renal",
     "Respiratory",
 ]
 
@@ -156,12 +167,10 @@ RANDOM_SYSTEM_POOL = [
     "Haematological",
     "Musculoskeletal",
     "Neurological",
-    "Neurodevelopment",
-    "Endocrine",
     "Renal",
+    "Endocrine",
     "Infectious diseases",
     "Nutrition",
-    "Development",
     "Neonatology",
     "Dermatology",
     "Rheumatological",
@@ -172,129 +181,6 @@ STUDY_NUMBER_MAX = 126
 STUDY_NUMBER_OPTIONS = ["Please select study number"] + [
     f"1-{i:03d}" for i in range(1, STUDY_NUMBER_MAX + 1)
 ]
-
-FEMALE_ROLES = {"mother", "grandmother", "aunt", "female guardian", "guardian"}
-MALE_ROLES = {"father", "grandfather", "uncle", "male guardian", "guardian"}
-
-# =========================
-# Rubric summaries
-# =========================
-BRIEF_RUBRIC_TEXT = """
-Wits Paediatrics history-taking rubric (strict but constructive)
-
-Assess the student on:
-1. Main complaint and development of symptoms
-2. Danger signs
-3. Involved system focused history
-4. Other systems enquiry
-5. Birth history
-6. Immunisation
-7. Nutrition
-8. Past medical / surgical / medication / allergy history
-9. Family history
-10. Social history where relevant
-11. Communication and logical flow
-12. Preceptor stage: summary, diagnosis, and differential diagnoses
-
-Important:
-- Use transcript evidence only.
-- Do not assume the student asked something if it is not clearly present.
-- Reward specificity and logical flow.
-- Keep feedback concise and focused on the highest-yield learning points.
-- Give one overall performance grade from 1 to 5 using:
-  1 = Needs significant development
-  2 = Emerging competence
-  3 = Meets expectations
-  4 = Strong performance
-  5 = Outstanding proficiency
-"""
-
-DETAILED_RUBRIC_TEXT = """
-Wits Paediatrics history-taking rubric (strict marking approach)
-
-Assess the student strictly on:
-1. Main complaint and development of symptoms
-2. Danger signs
-3. Involved system focused history
-4. Other systems enquiry
-5. Birth history
-6. Immunisation
-7. Nutrition
-8. Past medical / surgical / medication / allergy history
-9. Family history
-10. Social history where relevant
-11. Communication and logical flow
-12. Preceptor stage: summary, diagnosis, and differential diagnoses
-
-Important strict principles:
-- Do not mark generously.
-- Reward specificity and follow-up questions.
-- Broad vague questions should score lower unless followed by detail.
-- Do not assume a question was asked if it is not clearly present in the transcript.
-- If the learner misses important lines of enquiry, count that against them.
-- If the learner asks closed questions only, note the weakness.
-- Use transcript evidence only.
-- Give one overall performance grade from 1 to 5 using:
-  1 = Needs significant development
-  2 = Emerging competence
-  3 = Meets expectations
-  4 = Strong performance
-  5 = Outstanding proficiency
-"""
-
-# =========================
-# Case generator prompt
-# =========================
-CASE_GENERATOR_PROMPT = """
-You are generating a paediatric practice case for a 5th-year medical student in South Africa.
-
-Return ONLY valid JSON.
-Do not include markdown.
-Do not include explanation text.
-Do not include code fences.
-
-Use exactly these keys:
-- caregiver_name
-- caregiver_gender
-- caregiver_role
-- child_name
-- child_age
-- child_sex
-- presenting_complaint
-- case_summary
-- opening_line
-- siblings
-- residence
-- birth_place
-- household_structure
-- school_or_daycare
-- caregiver_occupation
-
-Rules:
-- South African paediatric context
-- realistic caregiver language
-- common paediatric problem
-- keep case_summary hidden and concise but clinically useful
-- opening_line must be a brief natural caregiver greeting that introduces the caregiver and child
-- VARY caregiver and child names across cases
-- Avoid repeatedly using the same names such as Thabo, Sipho, Nomsa, Lindiwe unless genuinely needed
-- Use a wide range of realistic South African names from different backgrounds and languages
-- caregiver_gender must be exactly "female" or "male"
-- caregiver_role must match the caregiver_gender naturally
-- If caregiver_gender is female, use a female caregiver name and a matching female role
-- If caregiver_gender is male, use a male caregiver name and a matching male role
-- Child names must vary naturally
-- Do not use the same caregiver name and child name together repeatedly
-- Make the presenting complaint and summary fit the age group and system requested
-- Populate the social/background fields realistically:
-  - siblings should be a short natural sentence, e.g. "He has one older sister, Amahle, who is 6 years old."
-  - residence should say where they live in a realistic South African way
-  - birth_place should be a realistic place of birth or hospital
-  - household_structure should say who lives at home
-  - school_or_daycare should say creche/daycare/school status or "not yet in school"
-  - caregiver_occupation should be simple and realistic
-- The background facts must be internally consistent and easy for a caregiver to know.
-"""
 
 # =========================
 # Helpers
@@ -337,7 +223,8 @@ def is_yes(text: str) -> bool:
     t = normalize_text(text)
     yes_values = {
         "yes", "y", "yeah", "yep", "okay", "ok", "sure", "please do",
-        "go ahead", "continue", "yes please", "okay yes", "ok yes"
+        "go ahead", "continue", "yes please", "okay yes", "ok yes",
+        "i am finished", "finished", "that's all", "thats all", "done"
     }
     return t in yes_values or t.startswith("yes ")
 
@@ -396,7 +283,7 @@ def looks_like_voice_session_complete(messages) -> bool:
     if not assistant_lines:
         return False
 
-    for line in reversed(assistant_lines[-10:]):
+    for line in reversed(assistant_lines[-12:]):
         if any(hint in line for hint in VOICE_COMPLETION_HINTS):
             return True
 
@@ -423,203 +310,6 @@ def resolve_random_selection(selected_age: str, selected_system: str):
         resolved_system = random.choice(RANDOM_SYSTEM_POOL)
 
     return resolved_age, resolved_system
-
-
-def sanitize_case_data(data: dict) -> dict:
-    caregiver_gender = str(data.get("caregiver_gender", "female")).strip().lower()
-    caregiver_role = str(data.get("caregiver_role", "")).strip().lower()
-    caregiver_name = str(data.get("caregiver_name", "")).strip()
-    child_name = str(data.get("child_name", "")).strip()
-    child_age = str(data.get("child_age", "")).strip()
-    child_sex = str(data.get("child_sex", "")).strip().lower()
-    presenting_complaint = str(data.get("presenting_complaint", "")).strip()
-    case_summary = str(data.get("case_summary", "")).strip()
-    opening_line = str(data.get("opening_line", "")).strip()
-
-    siblings = str(data.get("siblings", "")).strip()
-    residence = str(data.get("residence", "")).strip()
-    birth_place = str(data.get("birth_place", "")).strip()
-    household_structure = str(data.get("household_structure", "")).strip()
-    school_or_daycare = str(data.get("school_or_daycare", "")).strip()
-    caregiver_occupation = str(data.get("caregiver_occupation", "")).strip()
-
-    if caregiver_gender not in {"female", "male"}:
-        caregiver_gender = "female"
-
-    if caregiver_gender == "female" and caregiver_role not in FEMALE_ROLES:
-        caregiver_role = "mother"
-    if caregiver_gender == "male" and caregiver_role not in MALE_ROLES:
-        caregiver_role = "father"
-
-    if not caregiver_name:
-        caregiver_name = "Zanele" if caregiver_gender == "female" else "Sibusiso"
-    if not child_name:
-        child_name = "Musa"
-    if not child_age:
-        child_age = "3 years"
-    if child_sex not in {"male", "female"}:
-        child_sex = "male"
-    if not presenting_complaint:
-        presenting_complaint = "fever"
-    if not case_summary:
-        case_summary = f"{child_name} is a child presenting with {presenting_complaint}."
-    if not opening_line:
-        opening_line = f"Hello doctor, I'm {caregiver_name}, {child_name}'s {caregiver_role}."
-
-    if not siblings:
-        siblings = "He has one older sister, Ayanda, who is 6 years old." if child_sex == "male" else "She has one older brother, Luyanda, who is 6 years old."
-    if not residence:
-        residence = "We live in Soweto with family."
-    if not birth_place:
-        birth_place = "He was born at Chris Hani Baragwanath Academic Hospital." if child_sex == "male" else "She was born at Chris Hani Baragwanath Academic Hospital."
-    if not household_structure:
-        household_structure = "At home it is me, the child, and one sibling."
-    if not school_or_daycare:
-        school_or_daycare = "He goes to crèche during the week." if child_sex == "male" else "She goes to crèche during the week."
-    if not caregiver_occupation:
-        caregiver_occupation = "I work as a shop assistant."
-
-    data["caregiver_gender"] = caregiver_gender
-    data["caregiver_role"] = caregiver_role
-    data["caregiver_name"] = caregiver_name
-    data["child_name"] = child_name
-    data["child_age"] = child_age
-    data["child_sex"] = child_sex
-    data["presenting_complaint"] = presenting_complaint
-    data["case_summary"] = case_summary
-    data["opening_line"] = opening_line
-    data["siblings"] = siblings
-    data["residence"] = residence
-    data["birth_place"] = birth_place
-    data["household_structure"] = household_structure
-    data["school_or_daycare"] = school_or_daycare
-    data["caregiver_occupation"] = caregiver_occupation
-
-    return data
-
-
-def generate_case(age_group: str, system: str):
-    prompt = f"""
-Generate one case for:
-Age group: {age_group}
-System: {system}
-"""
-
-    response = client.responses.create(
-        model="gpt-4.1-mini",
-        instructions=CASE_GENERATOR_PROMPT,
-        input=prompt,
-    )
-
-    text = response.output_text.strip()
-
-    try:
-        data = json.loads(text)
-    except Exception:
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if not match:
-            raise ValueError(f"Could not parse generated case JSON.\n\nModel returned:\n{text}")
-
-        json_text = match.group(0)
-        json_text = re.sub(r",\s*}", "}", json_text)
-        json_text = re.sub(r",\s*]", "]", json_text)
-
-        try:
-            data = json.loads(json_text)
-        except Exception as e:
-            raise ValueError(
-                f"Could not parse generated case JSON.\n\nModel returned:\n{text}\n\nJSON error: {e}"
-            )
-
-    required = [
-        "caregiver_name",
-        "caregiver_gender",
-        "caregiver_role",
-        "child_name",
-        "child_age",
-        "child_sex",
-        "presenting_complaint",
-        "case_summary",
-        "opening_line",
-        "siblings",
-        "residence",
-        "birth_place",
-        "household_structure",
-        "school_or_daycare",
-        "caregiver_occupation",
-    ]
-    for key in required:
-        if key not in data:
-            raise ValueError(f"Generated case missing key: {key}")
-
-    data = sanitize_case_data(data)
-    return data
-
-
-def build_caregiver_history_instructions(case_data):
-    return f"""
-You are simulating a realistic caregiver in a paediatric history-taking station.
-
-Hidden medical case summary:
-{case_data["case_summary"]}
-
-Known caregiver/background facts that you should know comfortably and consistently:
-- Caregiver name: {case_data["caregiver_name"]}
-- Caregiver role: {case_data["caregiver_role"]}
-- Caregiver occupation: {case_data["caregiver_occupation"]}
-- Child name: {case_data["child_name"]}
-- Child age: {case_data["child_age"]}
-- Child sex: {case_data["child_sex"]}
-- Presenting complaint: {case_data["presenting_complaint"]}
-- Siblings: {case_data["siblings"]}
-- Residence: {case_data["residence"]}
-- Birth place: {case_data["birth_place"]}
-- Household structure: {case_data["household_structure"]}
-- School/daycare: {case_data["school_or_daycare"]}
-
-Rules:
-- Stay fully in caregiver role.
-- You are not ChatGPT.
-- You are not a general assistant.
-- Do not break role.
-- Do not thank the learner in a generic assistant style.
-- Do not say "let me know if you need anything else."
-- Do not offer help outside the caregiver role.
-- Use English only.
-- Use simple, natural, non-medical language.
-- Answer only the question that was asked.
-- Do not volunteer extra details unless directly asked.
-- Being brief does NOT mean being vague or unsure.
-- When the learner asks about ordinary caregiver knowledge, answer directly, confidently, and naturally.
-- Do not coach the learner.
-- Do not ask doctor-like questions.
-- Keep your answers internally consistent with the hidden case summary and background facts.
-- You should know normal obvious family and social facts about your child and home life.
-- If asked about siblings, parents' names, home circumstances, where the child lives, where the child was born, who stays at home, school/daycare, or your work, answer naturally and confidently using the background facts above.
-- Do NOT say "I'm not sure" to obvious non-medical facts that a normal caregiver would know.
-- Only show uncertainty where it is realistic, such as:
-  - medical interpretation or diagnosis
-  - exact medical measurements
-  - technical medical terms
-  - details you genuinely would not have noticed
-  - exact timing if not carefully observed
-  - information that was never explained to you clearly
-- If something is ordinary caregiver knowledge, answer it directly.
-- If the learner greets first, greet back briefly as the caregiver.
-- Do not immediately give the whole story on a simple greeting alone.
-- Never behave like a doctor, receptionist, or assistant.
-- Never say: "How can I help you?", "How can I help you and your child today?", "What can I help you with?", "What seems to be the problem today?", or similar clinician-style phrases.
-- Never ask the learner a clinical opening question.
-- After a simple greeting, reply briefly and wait.
-- Good examples:
-  "Good afternoon, doctor."
-  "Hello, doctor."
-  "Good afternoon."
-  "Hello doctor."
-- If the learner asks broad opening clinical questions like "What brought you in?", "What seems to be the problem?", "Tell me about your child", or "What is the problem with your child?", answer with the main complaint naturally.
-- If the learner asks something unclear, ask briefly for clarification.
-- If the learner clearly indicates they are finished, respond only with: "{TEXT_PRECEPTOR_INVITE}"
-"""
 
 
 def transcript_from_messages(messages):
@@ -664,94 +354,68 @@ def has_meaningful_interaction(messages) -> bool:
     return len(meaningful_turns) >= 2 or total_student_words >= 12
 
 
-def insufficient_interaction_feedback(detailed: bool = False) -> str:
-    if detailed:
-        return (
-            "Strengths\n"
-            "No assessable strengths could be identified because there was insufficient student interaction.\n\n"
-            "Priority areas for improvement\n"
-            "Complete the history-taking interaction before requesting assessment.\n\n"
-            "Missed opportunities\n"
-            "The session did not contain enough student questioning or engagement to assess history-taking performance.\n\n"
-            "Domain-based scoring comments\n"
-            "Scoring was not possible because there was insufficient interaction.\n\n"
-            "Overall comment\n"
-            "No assessment possible: there was insufficient student interaction to assess this session.\n\n"
-            "Overall performance grade (1-5) with label\n"
-            "Not assessable - no grade awarded"
-        )
-
-    return (
-        "Key strengths\n"
-        "No assessable strengths could be identified because there was insufficient student interaction.\n\n"
-        "Priority improvement points\n"
-        "Complete the history-taking interaction before requesting assessment.\n\n"
-        "Overall comment\n"
-        "No assessment possible: there was insufficient student interaction to assess this session.\n\n"
-        "Overall performance grade (1-5) with label\n"
-        "Not assessable - no grade awarded"
-    )
+def insufficient_interaction_feedback_json():
+    return {
+        "case_summary": "Insufficient interaction to generate a valid assessment.",
+        "scores": {},
+        "raw_score_total": 0,
+        "raw_total_possible": 0,
+        "final_score_out_of_100": 0,
+        "strengths": [
+            "No assessable strengths could be identified because there was insufficient student interaction."
+        ],
+        "missed_opportunities": [
+            "Complete the history-taking interaction before requesting assessment."
+        ],
+        "overall_feedback": (
+            "No assessment possible: there was insufficient student interaction to assess this session."
+        ),
+    }
 
 
 def call_assessment(messages, detailed: bool = False):
     if not has_meaningful_interaction(messages):
-        return insufficient_interaction_feedback(detailed=detailed)
+        return insufficient_interaction_feedback_json()
 
     transcript = transcript_from_messages(messages)
-    rubric_text = DETAILED_RUBRIC_TEXT if detailed else BRIEF_RUBRIC_TEXT
+    assessment_prompt = build_assessor_system_prompt(st.session_state.case_data, detailed=detailed)
 
-    if detailed:
-        prompt = f"""
+    prompt = f"""
+Assess this paediatric history-taking transcript.
+
 Transcript:
 {transcript}
-
-Use this exact order with clear headings:
-1. Strengths
-2. Priority areas for improvement
-3. Missed opportunities
-4. Domain-based scoring comments
-5. Overall comment
-6. Overall performance grade (1-5) with label
-
-Important:
-- Put the grade LAST, not first.
-"""
-    else:
-        prompt = f"""
-Transcript:
-{transcript}
-
-Use this exact order with clear headings:
-1. Key strengths
-2. Priority improvement points
-3. Overall comment
-4. Overall performance grade (1-5) with label
-
-Important:
-- Keep it concise, specific, and learner-friendly.
-- Put the grade LAST, not first.
-"""
-
-    instructions = f"""
-You are a strict but constructive paediatric preceptor and examiner giving feedback on a student history-taking station.
-
-Use this rubric summary:
-{rubric_text}
-
-Rules:
-- Base everything only on transcript evidence.
-- Do not assume missing history was asked.
-- Be honest but supportive.
-- Use the 1 to 5 grading scale exactly.
-- Follow the requested heading order exactly.
 """
 
     response = client.responses.create(
         model="gpt-4.1-mini",
-        instructions=instructions,
+        instructions=assessment_prompt,
         input=prompt,
     )
-    return response.output_text.strip()
+
+    text = response.output_text.strip()
+
+    try:
+        data = json.loads(text)
+        return data
+    except Exception:
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group(0))
+            except Exception:
+                pass
+
+    return {
+        "case_summary": "Assessment could not be parsed cleanly, but feedback was generated.",
+        "scores": {},
+        "raw_score_total": 0,
+        "raw_total_possible": 0,
+        "final_score_out_of_100": 0,
+        "strengths": [],
+        "missed_opportunities": [],
+        "overall_feedback": text,
+    }
 
 
 def import_voice_transcript(session_id: str | None):
@@ -867,6 +531,13 @@ def reset_case_state():
     st.session_state.resolved_system = None
     st.session_state.transcript_download_name = None
     st.session_state.active_mode = None
+    st.session_state.case_context_text = ""
+    st.session_state.caregiver_system_prompt = ""
+    st.session_state.assessor_system_prompt = ""
+    st.session_state.assessor_schema = {}
+    st.session_state.summary_response = ""
+    st.session_state.diagnosis_response = ""
+    st.session_state.differentials_response = ""
 
 
 def apply_imported_messages(imported_obj, session_id=None, status_message="Voice transcript imported automatically."):
@@ -924,9 +595,53 @@ def build_reflection_text():
     return "\n".join(lines)
 
 
+def render_assessment_json(data: dict, detailed: bool = False):
+    if not isinstance(data, dict):
+        st.write(data)
+        return
+
+    score = data.get("final_score_out_of_100")
+    if score is not None:
+        st.markdown(f"**Final score:** {score}/100")
+
+    case_summary = data.get("case_summary")
+    if case_summary:
+        st.markdown("**Case summary**")
+        st.write(case_summary)
+
+    strengths = data.get("strengths", [])
+    if strengths:
+        st.markdown("**Strengths**")
+        for item in strengths:
+            st.write(f"- {item}")
+
+    missed = data.get("missed_opportunities", [])
+    if missed:
+        st.markdown("**Priority areas for improvement**")
+        for item in missed:
+            st.write(f"- {item}")
+
+    if detailed:
+        scores = data.get("scores", {})
+        if scores:
+            st.markdown("**Domain-based scoring comments**")
+            for key, value in scores.items():
+                label = key.replace("_", " ").title()
+                section_score = value.get("score", "")
+                max_marks = value.get("max_marks", "")
+                reasoning = value.get("reasoning", "")
+                st.write(f"**{label}:** {section_score}/{max_marks}")
+                if reasoning:
+                    st.write(reasoning)
+
+    overall = data.get("overall_feedback")
+    if overall:
+        st.markdown("**Overall feedback**")
+        st.write(overall)
+
+
 def run_text_state_machine(user_text: str):
     phase = st.session_state.text_phase
-    case_data = st.session_state.case_data
 
     if phase == "caregiver":
         if looks_like_finished_history(user_text):
@@ -938,7 +653,7 @@ def run_text_state_machine(user_text: str):
 
         response = client.responses.create(
             model="gpt-4.1-mini",
-            instructions=build_caregiver_history_instructions(case_data),
+            instructions=st.session_state.caregiver_system_prompt,
             input=st.session_state.messages,
         )
         return response.output_text.strip()
@@ -953,19 +668,66 @@ def run_text_state_machine(user_text: str):
         return "Please answer yes or no."
 
     if phase == "await_summary_answer":
-        st.session_state.text_phase = "await_diagnosis_answer"
-        return TEXT_DIAGNOSIS_QUESTION
+        st.session_state.summary_response = user_text
+        st.session_state.text_phase = "confirm_summary_done"
+        return TEXT_CONFIRM_SUMMARY
+
+    if phase == "confirm_summary_done":
+        if is_yes(user_text):
+            st.session_state.text_phase = "await_diagnosis_answer"
+            return TEXT_DIAGNOSIS_QUESTION
+        if is_no(user_text):
+            st.session_state.text_phase = "await_summary_answer"
+            return "Okay, please continue your summary."
+        return "Please answer yes or no."
 
     if phase == "await_diagnosis_answer":
-        st.session_state.text_phase = "await_differentials_answer"
-        return TEXT_DIFFERENTIALS_QUESTION
+        st.session_state.diagnosis_response = user_text
+        st.session_state.text_phase = "confirm_diagnosis_done"
+        return TEXT_CONFIRM_DIAGNOSIS
+
+    if phase == "confirm_diagnosis_done":
+        if is_yes(user_text):
+            st.session_state.text_phase = "await_differentials_answer"
+            return TEXT_DIFFERENTIALS_QUESTION
+        if is_no(user_text):
+            st.session_state.text_phase = "await_diagnosis_answer"
+            return "Okay, please continue your diagnosis."
+        return "Please answer yes or no."
 
     if phase == "await_differentials_answer":
-        st.session_state.text_phase = "post_presentation"
-        st.session_state.presentation_done = True
-        st.session_state.mode = "post_presentation"
-        st.session_state.case_ended_at = now_iso()
-        return TEXT_FINAL_LINE
+        st.session_state.differentials_response = user_text
+        st.session_state.text_phase = "confirm_differentials_done"
+        return TEXT_CONFIRM_DIFFERENTIALS
+
+    if phase == "confirm_differentials_done":
+        if is_yes(user_text) and "finish" not in normalize_text(user_text):
+            st.session_state.text_phase = "await_differentials_answer"
+            return "Okay, please continue with your differential diagnoses."
+        if is_yes(user_text) and "finish" in normalize_text(user_text):
+            st.session_state.text_phase = "post_presentation"
+            st.session_state.presentation_done = True
+            st.session_state.mode = "post_presentation"
+            st.session_state.case_ended_at = now_iso()
+            return TEXT_FINAL_LINE
+        if is_no(user_text):
+            st.session_state.text_phase = "post_presentation"
+            st.session_state.presentation_done = True
+            st.session_state.mode = "post_presentation"
+            st.session_state.case_ended_at = now_iso()
+            return TEXT_FINAL_LINE
+
+        t = normalize_text(user_text)
+        finish_markers = {"finished", "i am finished", "done", "that's all", "thats all", "no"}
+        if t in finish_markers:
+            st.session_state.text_phase = "post_presentation"
+            st.session_state.presentation_done = True
+            st.session_state.mode = "post_presentation"
+            st.session_state.case_ended_at = now_iso()
+            return TEXT_FINAL_LINE
+
+        st.session_state.text_phase = "await_differentials_answer"
+        return "Okay, please continue with your differential diagnoses."
 
     return "Conversation complete."
 
@@ -998,6 +760,13 @@ defaults = {
     "resolved_age": None,
     "resolved_system": None,
     "transcript_download_name": None,
+    "case_context_text": "",
+    "caregiver_system_prompt": "",
+    "assessor_system_prompt": "",
+    "assessor_schema": {},
+    "summary_response": "",
+    "diagnosis_response": "",
+    "differentials_response": "",
 }
 
 for key, value in defaults.items():
@@ -1102,11 +871,21 @@ if not st.session_state.case_data and not st.session_state.messages:
         else:
             try:
                 resolved_age, resolved_system = resolve_random_selection(selected_age, selected_system)
-                case_data = generate_case(resolved_age, resolved_system)
+                case_data = choose_case(requested_system=resolved_system)
+
+                case_context_text = build_case_display_text(case_data)
+                caregiver_system_prompt = build_history_taking_system_prompt(case_data)
+                assessor_system_prompt = build_assessor_system_prompt(case_data, detailed=False)
+                assessor_schema = build_assessor_schema(case_data)
+
                 session_id = str(uuid.uuid4())
 
                 reset_case_state()
                 st.session_state.case_data = case_data
+                st.session_state.case_context_text = case_context_text
+                st.session_state.caregiver_system_prompt = caregiver_system_prompt
+                st.session_state.assessor_system_prompt = assessor_system_prompt
+                st.session_state.assessor_schema = assessor_schema
                 st.session_state.current_session_id = session_id
                 st.session_state.case_started_at = now_iso()
                 st.session_state.study_number = selected_study_number
@@ -1132,6 +911,9 @@ if (
     and st.session_state.active_mode == "Realtime voice"
     and not st.session_state.messages
 ):
+    st.markdown("### Case Context")
+    st.info(st.session_state.case_context_text)
+
     st.markdown("### Realtime voice mode")
     voice_url = build_voice_url(st.session_state.current_session_id)
     st.link_button("Open realtime voice case", voice_url, use_container_width=True)
@@ -1167,6 +949,9 @@ show_live_transcript = (
 )
 
 if show_live_transcript:
+    st.markdown("### Case Context")
+    st.info(st.session_state.case_context_text)
+
     st.markdown("### Conversation")
     for m in st.session_state.messages:
         with st.chat_message(m["role"]):
@@ -1220,7 +1005,7 @@ if st.session_state.presentation_done:
                 st.rerun()
 
     if st.session_state.brief_assessment_generated:
-        st.write(st.session_state.brief_assessment_generated)
+        render_assessment_json(st.session_state.brief_assessment_generated, detailed=False)
 
         if not st.session_state.detailed_assessment_generated:
             if st.button("Show detailed feedback", use_container_width=True):
@@ -1235,7 +1020,7 @@ if st.session_state.presentation_done:
 
         if st.session_state.detailed_assessment_generated:
             with st.expander("Detailed feedback", expanded=True):
-                st.write(st.session_state.detailed_assessment_generated)
+                render_assessment_json(st.session_state.detailed_assessment_generated, detailed=True)
 
 # =========================
 # Transcript tools
