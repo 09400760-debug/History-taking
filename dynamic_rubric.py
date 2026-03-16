@@ -5,10 +5,6 @@ from typing import Dict, List, Optional, Set, Any
 import random
 
 
-# ============================================================
-# Dynamic rubric model
-# ============================================================
-
 @dataclass
 class RubricSection:
     key: str
@@ -29,10 +25,9 @@ RUBRIC_SECTIONS: Dict[str, RubricSection] = {
         max_marks=25,
         always_core=True,
         guidance=(
-            "Assess whether the student explored the main complaint properly, including onset, "
-            "duration, progression, severity, associated symptoms, triggers, relieving factors, "
-            "and impact on feeding, play, sleep, or function. Strong performance should include "
-            "at least 3 relevant follow-up questions."
+            "Assess whether the student explored onset, duration, progression, severity, associated "
+            "symptoms, triggers, relieving factors, and impact on feeding, sleep, play, function, "
+            "or daily life. Strong performance should include at least 3 relevant follow-up questions."
         ),
     ),
     "danger_signs": RubricSection(
@@ -42,9 +37,8 @@ RUBRIC_SECTIONS: Dict[str, RubricSection] = {
         always_core=True,
         guidance=(
             "Assess whether the student screened for important danger signs. Examples include "
-            "convulsions, lethargy, vomiting everything, poor feeding or no feeding, and "
-            "system-specific red flags such as fast breathing, severe respiratory distress, "
-            "reduced urine output, severe dehydration, or altered consciousness."
+            "convulsions, lethargy, poor feeding, vomiting everything, severe dehydration, reduced "
+            "urine output, severe respiratory distress, and altered consciousness."
         ),
     ),
     "involved_system": RubricSection(
@@ -52,9 +46,7 @@ RUBRIC_SECTIONS: Dict[str, RubricSection] = {
         label="Involved System Focused History",
         max_marks=5,
         usually_core=True,
-        guidance=(
-            "Assess the depth and relevance of the focused history related to the presenting system."
-        ),
+        guidance="Assess the depth and relevance of system-focused questions related to the presenting problem.",
     ),
     "other_systems": RubricSection(
         key="other_systems",
@@ -62,29 +54,20 @@ RUBRIC_SECTIONS: Dict[str, RubricSection] = {
         max_marks=3,
         usually_core=True,
         guidance=(
-            "Assess whether the student screened appropriately across other systems, including "
-            "questions about weight loss, sleep, urinary and bowel habits, or other relevant "
-            "non-primary system concerns."
+            "Assess whether the student screened appropriately across other systems, including weight loss, "
+            "sleep, urinary and bowel habits, or other relevant non-primary system concerns."
         ),
     ),
     "birth_history": RubricSection(
         key="birth_history",
         label="Birth History",
         max_marks=5,
-        activation_tags={
-            "neonate",
-            "infant",
-            "development",
-            "failure_to_thrive",
-            "congenital",
-            "seizure",
-            "cardiac",
-        },
+        activation_tags={"neonate", "infant", "development", "failure_to_thrive", "congenital", "seizure", "cardiac"},
         max_age_months=24,
         guidance=(
-            "Activate especially in neonates, infants, developmental cases, congenital cases, "
-            "poor growth, or seizures. Assess antenatal, perinatal, and neonatal history, "
-            "maternal illness, HIV/syphilis testing, antenatal care, and relevant PMTCT details."
+            "Activate especially in neonates, infants, developmental cases, congenital cases, poor growth, "
+            "or seizures. Assess antenatal, perinatal, neonatal history, maternal illness, HIV/syphilis testing, "
+            "and relevant PMTCT details."
         ),
     ),
     "immunisation": RubricSection(
@@ -94,29 +77,20 @@ RUBRIC_SECTIONS: Dict[str, RubricSection] = {
         activation_tags={"infectious", "fever", "respiratory", "rash", "cns", "infant"},
         max_age_months=60,
         guidance=(
-            "Activate in younger children and many infectious or fever presentations. Assess whether "
-            "the student checked immunisation status or asked to review the Road to Health card."
+            "Activate in younger children and many infectious or fever presentations. Assess whether the student "
+            "checked immunisation status or asked to review the Road to Health card."
         ),
     ),
     "nutrition": RubricSection(
         key="nutrition",
         label="Nutrition",
         max_marks=3,
-        activation_tags={
-            "infant",
-            "diarrhoea",
-            "vomiting",
-            "failure_to_thrive",
-            "malnutrition",
-            "nutrition",
-            "infectious",
-            "cardiac",
-        },
+        activation_tags={"infant", "diarrhoea", "vomiting", "failure_to_thrive", "malnutrition", "nutrition", "infectious", "cardiac"},
         max_age_months=72,
         guidance=(
-            "Activate in infants, feeding cases, diarrhoea/vomiting, malnutrition, poor growth, "
-            "and cardiac failure-to-thrive cases. Assess breastfeeding, fluid intake, solids, "
-            "missed meals, feeding practices, and relevant allergies or dietary issues."
+            "Activate in infants, feeding cases, diarrhoea/vomiting, malnutrition, poor growth, and cardiac "
+            "failure-to-thrive cases. Assess breastfeeding, fluid intake, solids, missed meals, feeding practices, "
+            "and relevant allergies or dietary issues."
         ),
     ),
     "past_history": RubricSection(
@@ -125,8 +99,8 @@ RUBRIC_SECTIONS: Dict[str, RubricSection] = {
         max_marks=5,
         usually_core=True,
         guidance=(
-            "Assess whether the student asked about past medical and surgical history, admissions, "
-            "medications, allergies, and use of traditional therapies."
+            "Assess whether the student asked about past medical history, prior admissions, surgery, medications, "
+            "allergies, and traditional therapies."
         ),
     ),
     "family_history": RubricSection(
@@ -146,27 +120,18 @@ RUBRIC_SECTIONS: Dict[str, RubricSection] = {
         activation_tags={"development", "neurology", "failure_to_thrive", "chronic", "cerebral_palsy"},
         max_age_months=72,
         guidance=(
-            "Activate in younger children and especially neurological, chronic, developmental, "
-            "or poor-growth cases. Assess gross motor, fine motor, language, and social development."
+            "Activate in younger children and especially neurological, developmental, chronic, or poor-growth cases. "
+            "Assess gross motor, fine motor, language, and social development."
         ),
     ),
     "social_history": RubricSection(
         key="social_history",
         label="Social History & Travel",
         max_marks=3,
-        activation_tags={
-            "infectious",
-            "tb",
-            "chronic",
-            "environment",
-            "diarrhoea",
-            "respiratory",
-            "renal",
-            "nutrition",
-        },
+        activation_tags={"infectious", "tb", "chronic", "environment", "diarrhoea", "respiratory", "renal", "nutrition"},
         guidance=(
-            "Assess dwelling, who lives at home, siblings, grants or income stress where relevant, "
-            "exposures, school or crèche attendance, environmental risk, and travel where relevant."
+            "Assess dwelling, who lives at home, siblings, social circumstances, school or crèche attendance, "
+            "environmental risk, and travel where relevant."
         ),
     ),
     "assessment": RubricSection(
@@ -175,8 +140,8 @@ RUBRIC_SECTIONS: Dict[str, RubricSection] = {
         max_marks=20,
         always_core=True,
         guidance=(
-            "Assess whether the student gave a logical summary and differential diagnosis, including "
-            "at least one reasonable alternative differential."
+            "Assess whether the student gave a logical summary and differential diagnosis, including at least one "
+            "reasonable alternative differential."
         ),
     ),
     "empathy": RubricSection(
@@ -184,10 +149,7 @@ RUBRIC_SECTIONS: Dict[str, RubricSection] = {
         label="Empathy",
         max_marks=5,
         always_core=True,
-        guidance=(
-            "Assess whether the student acknowledged caregiver emotion, listened actively, and "
-            "responded supportively."
-        ),
+        guidance="Assess whether the student acknowledged caregiver emotion, listened actively, and responded supportively.",
     ),
     "communication": RubricSection(
         key="communication",
@@ -195,19 +157,15 @@ RUBRIC_SECTIONS: Dict[str, RubricSection] = {
         max_marks=15,
         always_core=True,
         guidance=(
-            "Assess organisation, clarity, logical flow, use of open questions where appropriate, "
-            "summarising, professionalism, and overall interview quality."
+            "Assess organisation, clarity, logical flow, open questioning where appropriate, summarising, "
+            "professionalism, and overall interview quality."
         ),
     ),
 }
 
 
-# ============================================================
-# 30-case South African paediatric bank
-# ============================================================
-
 COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
-    # ---------------- Respiratory ----------------
+    # Respiratory
     {
         "id": "resp_001",
         "title": "Childhood pneumonia",
@@ -215,10 +173,13 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_months": 24,
         "system": "Respiratory",
         "tags": {"infectious", "respiratory", "fever"},
-        "context": (
-            "You are speaking to the mother of a 2-year-old child with cough, fever, and fast breathing "
-            "for 3 days. The child is drinking less than usual and has been less active."
-        ),
+        "context": "A 2-year-old child has cough, fever, and fast breathing for 3 days.",
+        "expected_diagnosis": "Childhood pneumonia",
+        "expected_differentials": [
+            "Bronchiolitis",
+            "Viral lower respiratory tract infection",
+            "Acute asthma / wheeze-associated illness",
+        ],
     },
     {
         "id": "resp_002",
@@ -227,10 +188,13 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_months": 6,
         "system": "Respiratory",
         "tags": {"infectious", "respiratory", "infant"},
-        "context": (
-            "You are speaking to the caregiver of a 6-month-old infant with cough, difficulty breathing, "
-            "poor feeding, and noisy breathing over 2 days."
-        ),
+        "context": "A 6-month-old infant has cough, difficulty breathing, poor feeding, and noisy breathing over 2 days.",
+        "expected_diagnosis": "Bronchiolitis",
+        "expected_differentials": [
+            "Pneumonia",
+            "Acute viral wheeze",
+            "Congestive cardiac failure",
+        ],
     },
     {
         "id": "resp_003",
@@ -239,10 +203,13 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_months": 24,
         "system": "Respiratory",
         "tags": {"infectious", "respiratory", "fever"},
-        "context": (
-            "You are speaking to the parent of a 2-year-old with a barking cough, noisy breathing, "
-            "and fever after a viral illness."
-        ),
+        "context": "A 2-year-old has a barking cough, noisy breathing, and fever after a viral illness.",
+        "expected_diagnosis": "Viral croup",
+        "expected_differentials": [
+            "Epiglottitis",
+            "Foreign body aspiration",
+            "Bacterial tracheitis",
+        ],
     },
     {
         "id": "resp_004",
@@ -251,10 +218,13 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_months": 60,
         "system": "Respiratory",
         "tags": {"infectious", "tb", "respiratory", "chronic"},
-        "context": (
-            "You are speaking to the grandmother of a 5-year-old with chronic cough, weight loss, "
-            "night sweats, and a household TB contact."
-        ),
+        "context": "A 5-year-old has chronic cough, weight loss, night sweats, and a household TB contact.",
+        "expected_diagnosis": "Pulmonary tuberculosis",
+        "expected_differentials": [
+            "Chronic pneumonia",
+            "HIV-related chronic lung disease",
+            "Asthma",
+        ],
     },
     {
         "id": "resp_005",
@@ -263,10 +233,13 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_months": 96,
         "system": "Respiratory",
         "tags": {"respiratory", "chronic"},
-        "context": (
-            "You are speaking to the mother of an 8-year-old with known asthma who has worsening cough, "
-            "wheeze, and shortness of breath since last night."
-        ),
+        "context": "An 8-year-old with known asthma has worsening cough, wheeze, and shortness of breath since last night.",
+        "expected_diagnosis": "Acute asthma exacerbation",
+        "expected_differentials": [
+            "Pneumonia",
+            "Foreign body aspiration",
+            "Viral-induced wheeze",
+        ],
     },
     {
         "id": "resp_006",
@@ -275,10 +248,13 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_months": 6,
         "system": "Respiratory",
         "tags": {"infectious", "respiratory", "infant", "fever"},
-        "context": (
-            "You are speaking to the caregiver of a 6-month-old with severe coughing bouts, vomiting after "
-            "coughing, and difficulty settling."
-        ),
+        "context": "A 6-month-old has severe coughing bouts and vomiting after coughing.",
+        "expected_diagnosis": "Pertussis",
+        "expected_differentials": [
+            "Bronchiolitis",
+            "Pneumonia",
+            "Foreign body aspiration",
+        ],
     },
     {
         "id": "resp_007",
@@ -287,13 +263,16 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_months": 12,
         "system": "Respiratory",
         "tags": {"respiratory", "acute"},
-        "context": (
-            "You are speaking to the caregiver of a 1-year-old with sudden-onset cough and wheeze after "
-            "playing at home."
-        ),
+        "context": "A 1-year-old developed sudden coughing and wheezing while playing.",
+        "expected_diagnosis": "Foreign body aspiration",
+        "expected_differentials": [
+            "Acute asthma / wheeze",
+            "Bronchiolitis",
+            "Pneumonia",
+        ],
     },
 
-    # ---------------- Gastrointestinal ----------------
+    # Gastrointestinal
     {
         "id": "gi_001",
         "title": "Acute gastroenteritis with dehydration",
@@ -301,10 +280,13 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_months": 12,
         "system": "Gastrointestinal",
         "tags": {"infectious", "diarrhoea", "vomiting", "infant"},
-        "context": (
-            "You are speaking to the caregiver of a 1-year-old with diarrhoea and vomiting for 2 days, "
-            "reduced urine output, and poor oral intake."
-        ),
+        "context": "A 1-year-old has diarrhoea and vomiting for 2 days, reduced urine output, and poor oral intake.",
+        "expected_diagnosis": "Acute gastroenteritis with dehydration",
+        "expected_differentials": [
+            "Sepsis",
+            "Urinary tract infection",
+            "Intussusception",
+        ],
     },
     {
         "id": "gi_002",
@@ -313,10 +295,13 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_months": 48,
         "system": "Gastrointestinal",
         "tags": {"infectious", "diarrhoea", "fever"},
-        "context": (
-            "You are speaking to the parent of a 4-year-old with bloody diarrhoea, abdominal pain, "
-            "and fever since yesterday."
-        ),
+        "context": "A 4-year-old has bloody diarrhoea, abdominal pain, and fever since yesterday.",
+        "expected_diagnosis": "Dysentery",
+        "expected_differentials": [
+            "Severe bacterial gastroenteritis",
+            "Inflammatory bowel disease",
+            "Meckel diverticulum with bleeding",
+        ],
     },
     {
         "id": "gi_003",
@@ -325,10 +310,13 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_months": 72,
         "system": "Gastrointestinal",
         "tags": {"gastrointestinal", "chronic"},
-        "context": (
-            "You are speaking to the mother of a 6-year-old with abdominal pain, infrequent hard stools, "
-            "and occasional soiling of underwear."
-        ),
+        "context": "A 6-year-old has abdominal pain, infrequent hard stools, and occasional soiling of underwear.",
+        "expected_diagnosis": "Constipation with overflow soiling",
+        "expected_differentials": [
+            "Functional abdominal pain",
+            "Hirschsprung disease",
+            "Coeliac disease",
+        ],
     },
     {
         "id": "gi_004",
@@ -337,10 +325,13 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_months": 108,
         "system": "Gastrointestinal",
         "tags": {"infectious", "gastrointestinal"},
-        "context": (
-            "You are speaking to the caregiver of a 9-year-old with yellow eyes, dark urine, poor appetite, "
-            "and tiredness."
-        ),
+        "context": "A 9-year-old has yellow eyes, dark urine, poor appetite, and tiredness.",
+        "expected_diagnosis": "Acute hepatitis",
+        "expected_differentials": [
+            "Haemolysis",
+            "Obstructive jaundice",
+            "Drug-induced liver injury",
+        ],
     },
     {
         "id": "gi_005",
@@ -349,10 +340,13 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_months": 120,
         "system": "Gastrointestinal",
         "tags": {"gastrointestinal", "fever", "vomiting"},
-        "context": (
-            "You are speaking to the parent of a 10-year-old with worsening abdominal pain, fever, "
-            "and vomiting since yesterday."
-        ),
+        "context": "A 10-year-old has worsening abdominal pain, fever, and vomiting since yesterday.",
+        "expected_diagnosis": "Acute appendicitis",
+        "expected_differentials": [
+            "Mesenteric adenitis",
+            "Gastroenteritis",
+            "Urinary tract infection",
+        ],
     },
     {
         "id": "gi_006",
@@ -361,13 +355,16 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_months": 4,
         "system": "Gastrointestinal",
         "tags": {"infant", "vomiting", "failure_to_thrive"},
-        "context": (
-            "You are speaking to the mother of a 4-month-old who frequently vomits after feeds and is not "
-            "gaining weight well."
-        ),
+        "context": "A 4-month-old frequently vomits after feeds and is not gaining weight well.",
+        "expected_diagnosis": "Gastro-oesophageal reflux disease",
+        "expected_differentials": [
+            "Cow's milk protein allergy",
+            "Pyloric stenosis",
+            "Congenital heart disease",
+        ],
     },
 
-    # ---------------- Neurological ----------------
+    # Neurological
     {
         "id": "neuro_001",
         "title": "Febrile seizure",
@@ -375,10 +372,13 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_months": 18,
         "system": "Neurological",
         "tags": {"fever", "neurology", "infectious", "seizure"},
-        "context": (
-            "You are speaking to the caregiver of an 18-month-old who had a convulsion with fever today "
-            "after 2 days of upper respiratory symptoms."
-        ),
+        "context": "An 18-month-old had a convulsion with fever today after 2 days of upper respiratory symptoms.",
+        "expected_diagnosis": "Febrile seizure",
+        "expected_differentials": [
+            "Meningitis / encephalitis",
+            "Epilepsy",
+            "Electrolyte disturbance",
+        ],
     },
     {
         "id": "neuro_002",
@@ -387,10 +387,13 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_months": 72,
         "system": "Neurological",
         "tags": {"infectious", "cns", "fever", "neurology"},
-        "context": (
-            "You are speaking to the parent of a 6-year-old with fever, headache, vomiting, "
-            "and increasing drowsiness."
-        ),
+        "context": "A 6-year-old has fever, headache, vomiting, and increasing drowsiness.",
+        "expected_diagnosis": "Meningitis / meningoencephalitis",
+        "expected_differentials": [
+            "Severe malaria depending on setting",
+            "Brain abscess",
+            "Raised intracranial pressure from another cause",
+        ],
     },
     {
         "id": "neuro_003",
@@ -399,10 +402,13 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_months": 144,
         "system": "Neurological",
         "tags": {"neurology", "chronic"},
-        "context": (
-            "You are speaking to the mother of a 12-year-old with recurrent headaches, sometimes with nausea "
-            "and light sensitivity."
-        ),
+        "context": "A 12-year-old has recurrent headaches, sometimes with nausea and light sensitivity.",
+        "expected_diagnosis": "Migraine",
+        "expected_differentials": [
+            "Tension headache",
+            "Raised intracranial pressure",
+            "Refractive error / visual strain",
+        ],
     },
     {
         "id": "neuro_004",
@@ -411,9 +417,13 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_months": 108,
         "system": "Neurological",
         "tags": {"neurology", "seizure", "chronic"},
-        "context": (
-            "You are speaking to the caregiver of a 9-year-old with recurrent seizures who is on chronic medication."
-        ),
+        "context": "A 9-year-old with recurrent seizures is on chronic medication.",
+        "expected_diagnosis": "Epilepsy",
+        "expected_differentials": [
+            "Breakthrough seizures from poor adherence",
+            "Space-occupying lesion",
+            "Metabolic cause of seizures",
+        ],
     },
     {
         "id": "neuro_005",
@@ -422,10 +432,13 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_months": 132,
         "system": "Neurological",
         "tags": {"neurology", "vomiting", "chronic"},
-        "context": (
-            "You are speaking to the parent of an 11-year-old with early morning headaches, vomiting, "
-            "and worsening school performance."
-        ),
+        "context": "An 11-year-old has early morning headaches, vomiting, and worsening school performance.",
+        "expected_diagnosis": "Raised intracranial pressure / possible brain tumour",
+        "expected_differentials": [
+            "Migraine",
+            "Chronic meningitis",
+            "Idiopathic intracranial hypertension",
+        ],
     },
     {
         "id": "neuro_006",
@@ -434,13 +447,16 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_months": 60,
         "system": "Neurological",
         "tags": {"neurology", "development", "chronic", "cerebral_palsy"},
-        "context": (
-            "You are speaking to the caregiver of a 5-year-old with stiffness, delayed walking, "
-            "and functional difficulties at home."
-        ),
+        "context": "A 5-year-old has stiffness, delayed walking, and functional difficulties at home.",
+        "expected_diagnosis": "Cerebral palsy",
+        "expected_differentials": [
+            "Neuromuscular disorder",
+            "Developmental delay from another cause",
+            "Chronic encephalopathy",
+        ],
     },
 
-    # ---------------- Renal ----------------
+    # Renal
     {
         "id": "renal_001",
         "title": "Urinary tract infection",
@@ -448,10 +464,13 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_months": 24,
         "system": "Renal",
         "tags": {"renal", "infectious", "fever", "vomiting"},
-        "context": (
-            "You are speaking to the parent of a 2-year-old with fever, vomiting, irritability, "
-            "and pain when passing urine."
-        ),
+        "context": "A 2-year-old has fever, vomiting, irritability, and pain when passing urine.",
+        "expected_diagnosis": "Urinary tract infection",
+        "expected_differentials": [
+            "Pyelonephritis",
+            "Gastroenteritis",
+            "Sepsis",
+        ],
     },
     {
         "id": "renal_002",
@@ -460,10 +479,13 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_months": 72,
         "system": "Renal",
         "tags": {"renal", "infectious", "fever"},
-        "context": (
-            "You are speaking to the mother of a 6-year-old girl with high fever, flank pain, vomiting, "
-            "and burning when passing urine."
-        ),
+        "context": "A 6-year-old girl has high fever, flank pain, vomiting, and burning when passing urine.",
+        "expected_diagnosis": "Pyelonephritis",
+        "expected_differentials": [
+            "Lower urinary tract infection",
+            "Appendicitis",
+            "Acute glomerulonephritis",
+        ],
     },
     {
         "id": "renal_003",
@@ -472,10 +494,13 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_months": 48,
         "system": "Renal",
         "tags": {"renal", "chronic"},
-        "context": (
-            "You are speaking to the mother of a 4-year-old whose face has looked puffy for a few days, "
-            "and now the feet are also swollen."
-        ),
+        "context": "A 4-year-old's face has looked puffy for a few days, and now the feet are also swollen.",
+        "expected_diagnosis": "Nephrotic syndrome",
+        "expected_differentials": [
+            "Nephritic syndrome",
+            "Cardiac failure",
+            "Protein-losing enteropathy",
+        ],
     },
     {
         "id": "renal_004",
@@ -484,13 +509,16 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_months": 84,
         "system": "Renal",
         "tags": {"renal", "chronic"},
-        "context": (
-            "You are speaking to the parent of a 7-year-old with cola-coloured urine, puffy eyes, "
-            "and reduced urine output."
-        ),
+        "context": "A 7-year-old has cola-coloured urine, puffy eyes, and reduced urine output.",
+        "expected_diagnosis": "Acute nephritic syndrome",
+        "expected_differentials": [
+            "Nephrotic syndrome",
+            "Urinary tract infection",
+            "Haemoglobinuria",
+        ],
     },
 
-    # ---------------- General / other ----------------
+    # General / other
     {
         "id": "gen_001",
         "title": "Possible neonatal sepsis",
@@ -498,10 +526,13 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_months": 0,
         "system": "General Paediatrics",
         "tags": {"infectious", "neonate", "infant"},
-        "context": (
-            "You are speaking to the mother of a 10-day-old baby who is feeding poorly, "
-            "sleepier than usual, and feels hot."
-        ),
+        "context": "A 10-day-old baby is feeding poorly, sleepier than usual, and feels hot.",
+        "expected_diagnosis": "Neonatal sepsis",
+        "expected_differentials": [
+            "Meningitis",
+            "Urinary tract infection",
+            "Congenital heart disease",
+        ],
     },
     {
         "id": "gen_002",
@@ -510,10 +541,13 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_months": 18,
         "system": "General Paediatrics",
         "tags": {"infectious", "chronic", "failure_to_thrive", "infant"},
-        "context": (
-            "You are speaking to the mother of an 18-month-old with poor weight gain, recurrent chest infections, "
-            "oral thrush, and chronic diarrhoea."
-        ),
+        "context": "An 18-month-old has poor weight gain, recurrent chest infections, oral thrush, and chronic diarrhoea.",
+        "expected_diagnosis": "Possible HIV-related chronic illness / failure to thrive",
+        "expected_differentials": [
+            "Tuberculosis",
+            "Primary immunodeficiency",
+            "Severe malnutrition",
+        ],
     },
     {
         "id": "gen_003",
@@ -522,10 +556,13 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_months": 14,
         "system": "General Paediatrics",
         "tags": {"malnutrition", "failure_to_thrive", "infectious", "infant", "nutrition"},
-        "context": (
-            "You are speaking to the caregiver of a 14-month-old with visible weight loss, "
-            "swelling of the feet, poor appetite, and recurrent diarrhoea."
-        ),
+        "context": "A 14-month-old has visible weight loss, swelling of the feet, poor appetite, and recurrent diarrhoea.",
+        "expected_diagnosis": "Severe acute malnutrition",
+        "expected_differentials": [
+            "Nephrotic syndrome",
+            "Chronic HIV-related illness",
+            "Protein-losing enteropathy",
+        ],
     },
     {
         "id": "gen_004",
@@ -534,10 +571,13 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_months": 4,
         "system": "Cardiovascular",
         "tags": {"cardiac", "failure_to_thrive", "infant", "chronic", "congenital"},
-        "context": (
-            "You are speaking to the mother of a 4-month-old baby who sweats during feeds, "
-            "breathes fast, and is not gaining weight well."
-        ),
+        "context": "A 4-month-old baby sweats during feeds, breathes fast, and is not gaining weight well.",
+        "expected_diagnosis": "Acyanotic congenital heart disease with cardiac failure",
+        "expected_differentials": [
+            "Chronic lung disease",
+            "Severe reflux with failure to thrive",
+            "Chronic infection",
+        ],
     },
     {
         "id": "gen_005",
@@ -546,10 +586,13 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_months": 24,
         "system": "Cardiovascular",
         "tags": {"cardiac", "chronic", "congenital"},
-        "context": (
-            "You are speaking to the parent of a 2-year-old with episodes of becoming very blue, "
-            "especially when upset, and squatting afterwards."
-        ),
+        "context": "A 2-year-old has episodes of becoming very blue, especially when upset, and squats afterwards.",
+        "expected_diagnosis": "Tetralogy of Fallot / cyanotic congenital heart disease",
+        "expected_differentials": [
+            "Other cyanotic congenital heart disease",
+            "Severe pulmonary disease",
+            "Breath-holding spells",
+        ],
     },
     {
         "id": "gen_006",
@@ -558,10 +601,13 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_months": 48,
         "system": "Musculoskeletal",
         "tags": {"chronic", "nutrition", "musculoskeletal"},
-        "context": (
-            "You are speaking to the caregiver of a 4-year-old with bowed legs, delayed walking confidence, "
-            "and weakness."
-        ),
+        "context": "A 4-year-old has bowed legs, delayed walking confidence, and weakness.",
+        "expected_diagnosis": "Rickets",
+        "expected_differentials": [
+            "Blount disease",
+            "Neuromuscular disorder",
+            "Cerebral palsy",
+        ],
     },
     {
         "id": "gen_007",
@@ -570,17 +616,16 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_months": 1,
         "system": "General Paediatrics",
         "tags": {"infectious", "neonate", "infant", "congenital"},
-        "context": (
-            "You are speaking to the mother of a 1-month-old with persistent snuffles, poor feeding, "
-            "and a rash."
-        ),
+        "context": "A 1-month-old has persistent snuffles, poor feeding, and a rash.",
+        "expected_diagnosis": "Congenital syphilis",
+        "expected_differentials": [
+            "Neonatal sepsis",
+            "Congenital viral infection",
+            "Allergic / dermatological condition with poor feeding",
+        ],
     },
 ]
 
-
-# ============================================================
-# Default caregiver / social details
-# ============================================================
 
 DEFAULT_CAREGIVER_BY_CASE: Dict[str, tuple] = {
     "Childhood pneumonia": ("female", "mother", "Thandeka", "Sipho", "male"),
@@ -614,6 +659,7 @@ DEFAULT_CAREGIVER_BY_CASE: Dict[str, tuple] = {
     "Rickets": ("female", "mother", "Puleng", "Asemahle", "female"),
     "Congenital syphilis": ("female", "mother", "Thembi", "Baby Sethu", "male"),
 }
+
 
 CASE_SOCIALS: Dict[str, Dict[str, str]] = {
     "Respiratory": {
@@ -674,10 +720,6 @@ CASE_SOCIALS: Dict[str, Dict[str, str]] = {
     },
 }
 
-
-# ============================================================
-# Helpers
-# ============================================================
 
 def _age_matches(section: RubricSection, age_months: int) -> bool:
     if section.min_age_months is not None and age_months < section.min_age_months:
@@ -762,10 +804,6 @@ def _enrich_case(case: Dict[str, Any]) -> Dict[str, Any]:
     return enriched
 
 
-# ============================================================
-# Public API used by app.py
-# ============================================================
-
 def choose_case(
     requested_system: Optional[str] = None,
     requested_title: Optional[str] = None,
@@ -773,18 +811,12 @@ def choose_case(
     candidates = COMMON_SA_CASE_BANK
 
     if requested_system and requested_system.lower() != "random":
-        filtered = [
-            case for case in candidates
-            if case["system"].lower() == requested_system.lower()
-        ]
+        filtered = [case for case in candidates if case["system"].lower() == requested_system.lower()]
         if filtered:
             candidates = filtered
 
     if requested_title:
-        matches = [
-            case for case in candidates
-            if requested_title.lower() in case["title"].lower()
-        ]
+        matches = [case for case in candidates if requested_title.lower() in case["title"].lower()]
         if matches:
             candidates = matches
 
@@ -804,6 +836,8 @@ def build_assessor_schema(case_data: Dict[str, Any]) -> Dict[str, Any]:
             "system": case_data.get("system"),
             "tags": sorted(list(case_data.get("tags", []))),
             "context": case_data.get("context"),
+            "expected_diagnosis": case_data.get("expected_diagnosis"),
+            "expected_differentials": case_data.get("expected_differentials", []),
         },
         "rubric": {
             "scoring_model": "dynamic_case_activated_rubric",
@@ -819,25 +853,6 @@ def build_assessor_schema(case_data: Dict[str, Any]) -> Dict[str, Any]:
                 for section in active
             ],
         },
-        "output_format": {
-            "required_top_level_keys": [
-                "case_summary",
-                "scores",
-                "raw_score_total",
-                "raw_total_possible",
-                "final_score_out_of_100",
-                "strengths",
-                "missed_opportunities",
-                "overall_feedback",
-            ],
-            "scores_structure": {
-                "section_key": {
-                    "score": "number",
-                    "max_marks": "number",
-                    "reasoning": "string",
-                }
-            },
-        },
     }
 
 
@@ -845,11 +860,16 @@ def build_history_taking_system_prompt(case_data: Dict[str, Any]) -> str:
     return f"""
 You are role-playing a caregiver in a paediatric history-taking practice case in South Africa.
 
+IMPORTANT PURPOSE OF THIS STATION:
+- This station is about history-taking and diagnostic reasoning.
+- It is NOT a management or counselling station.
+- Do not steer the student toward treatment or management questions.
+
 CURRENT CASE:
 - Title: {case_data.get("title")}
 - Age: {case_data.get("age_label")}
 - System: {case_data.get("system")}
-- Context: {case_data.get("context")}
+- Hidden clinical picture: {case_data.get("context")}
 
 KNOWN FACTS:
 - Caregiver name: {case_data.get("caregiver_name")}
@@ -866,7 +886,7 @@ KNOWN FACTS:
 - School/daycare: {case_data.get("school_or_daycare")}
 
 ROLEPLAY RULES:
-- Start naturally by greeting the student as doctor and introducing yourself and the child briefly.
+- Start naturally by greeting the student as doctor and briefly introducing yourself and the child.
 - Do not volunteer the whole history at once.
 - Only reveal information when asked.
 - Answer like a real caregiver, not like a textbook.
@@ -877,6 +897,9 @@ ROLEPLAY RULES:
 - Maintain internal consistency throughout the case.
 - Never behave like a clinician or assistant.
 - Never ask the student what the problem is with the child.
+- Do not shift the interaction toward management.
+- Do not ask what treatment is needed, whether the child will be admitted, or what medicines are required unless the student explicitly raises management.
+- If the student asks management-focused questions, answer briefly and neutrally, but do not let management become the focus of the station.
 """.strip()
 
 
@@ -887,9 +910,7 @@ def build_assessor_system_prompt(case_data: Dict[str, Any], detailed: bool = Fal
 
     section_lines = []
     for section in active_sections:
-        section_lines.append(
-            f"- {section['label']} ({section['max_marks']}): {section['guidance']}"
-        )
+        section_lines.append(f"- {section['label']} ({section['max_marks']}): {section['guidance']}")
 
     joined_sections = "\n".join(section_lines)
 
@@ -900,21 +921,41 @@ def build_assessor_system_prompt(case_data: Dict[str, Any], detailed: bool = Fal
         "Keep the feedback concise, specific, and high-yield."
     )
 
+    expected_differentials = case_data.get("expected_differentials", [])
+
     return f"""
 You are an expert assessor for a paediatric history-taking encounter using a dynamic Wits-style rubric.
+
+THIS STATION TESTS:
+- the student's ability to take a thorough relevant history
+- their ability to build a diagnostic picture from the history
+- their ability to state a likely diagnosis and reasonable differentials
+
+THIS STATION DOES NOT TEST:
+- management planning
+- treatment counselling
+- disposition planning
 
 IMPORTANT:
 - Score ONLY the activated sections below.
 - Do NOT penalise the student for rubric sections that are not activated for this case.
+- Judge only the transcript evidence.
+- Do not reward management discussion unless it directly helps diagnostic reasoning.
 - After assigning raw section scores, calculate:
   final_score_out_of_100 = (raw_score_total / raw_total_possible) * 100
 - Round the final score to 1 decimal place.
+
+TRUE CASE DIAGNOSIS:
+{case_data.get("expected_diagnosis")}
+
+IMPORTANT EXPECTED DIFFERENTIAL DIAGNOSES:
+{expected_differentials}
 
 CASE:
 - Title: {case_data.get("title")}
 - Age: {case_data.get("age_label")}
 - System: {case_data.get("system")}
-- Context: {case_data.get("context")}
+- Hidden clinical picture: {case_data.get("context")}
 
 ACTIVATED RUBRIC SECTIONS:
 {joined_sections}
@@ -926,6 +967,8 @@ OUTPUT RULES:
 - Return valid JSON only.
 - Include these top-level keys exactly:
   case_summary
+  true_case_diagnosis
+  important_expected_differentials
   scores
   raw_score_total
   raw_total_possible
@@ -942,7 +985,7 @@ FOR EACH SECTION IN scores:
 STYLE:
 - Be fair, specific, and educational.
 - Reward relevant prioritisation and not just checklist behaviour.
-- Use transcript evidence only.
+- Explicitly comment on how well the student's history supports or misses the true diagnosis and differentials.
 - {detail_instruction}
 """.strip()
 
