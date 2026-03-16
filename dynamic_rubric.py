@@ -5,6 +5,10 @@ from typing import Dict, List, Optional, Set, Any
 import random
 
 
+# ============================================================
+# Dynamic rubric model
+# ============================================================
+
 @dataclass
 class RubricSection:
     key: str
@@ -25,9 +29,10 @@ RUBRIC_SECTIONS: Dict[str, RubricSection] = {
         max_marks=25,
         always_core=True,
         guidance=(
-            "Assess whether the student explored onset, duration, progression, characteristics, "
-            "triggers, relieving factors, severity, and impact on daily life. Strong performance "
-            "should include at least 3 relevant follow-up questions."
+            "Assess whether the student explored the main complaint properly, including onset, "
+            "duration, progression, severity, associated symptoms, triggers, relieving factors, "
+            "and impact on feeding, play, sleep, or function. Strong performance should include "
+            "at least 3 relevant follow-up questions."
         ),
     ),
     "danger_signs": RubricSection(
@@ -36,8 +41,10 @@ RUBRIC_SECTIONS: Dict[str, RubricSection] = {
         max_marks=2,
         always_core=True,
         guidance=(
-            "Assess whether the student screened for important danger signs such as convulsions, "
-            "lethargy, vomiting everything, not taking feeds, and system-specific danger signs."
+            "Assess whether the student screened for important danger signs. Examples include "
+            "convulsions, lethargy, vomiting everything, poor feeding or no feeding, and "
+            "system-specific red flags such as fast breathing, severe respiratory distress, "
+            "reduced urine output, severe dehydration, or altered consciousness."
         ),
     ),
     "involved_system": RubricSection(
@@ -45,7 +52,9 @@ RUBRIC_SECTIONS: Dict[str, RubricSection] = {
         label="Involved System Focused History",
         max_marks=5,
         usually_core=True,
-        guidance="Assess depth and relevance of system-focused questions related to the presenting problem.",
+        guidance=(
+            "Assess the depth and relevance of the focused history related to the presenting system."
+        ),
     ),
     "other_systems": RubricSection(
         key="other_systems",
@@ -53,43 +62,61 @@ RUBRIC_SECTIONS: Dict[str, RubricSection] = {
         max_marks=3,
         usually_core=True,
         guidance=(
-            "Assess whether the student screened appropriately across other systems, including items "
-            "such as sleep, bowel/urinary habits, weight loss, or screen time where relevant."
+            "Assess whether the student screened appropriately across other systems, including "
+            "questions about weight loss, sleep, urinary and bowel habits, or other relevant "
+            "non-primary system concerns."
         ),
     ),
     "birth_history": RubricSection(
         key="birth_history",
         label="Birth History",
         max_marks=5,
-        activation_tags={"neonate", "infant", "development", "failure_to_thrive", "congenital", "seizure"},
+        activation_tags={
+            "neonate",
+            "infant",
+            "development",
+            "failure_to_thrive",
+            "congenital",
+            "seizure",
+            "cardiac",
+        },
         max_age_months=24,
         guidance=(
-            "Activate especially in neonates, infants, developmental concerns, poor growth, congenital "
-            "concerns, or seizures. Assess antenatal, perinatal, neonatal history, maternal illness, "
-            "HIV/syphilis testing, and Road to Health Booklet."
+            "Activate especially in neonates, infants, developmental cases, congenital cases, "
+            "poor growth, or seizures. Assess antenatal, perinatal, and neonatal history, "
+            "maternal illness, HIV/syphilis testing, antenatal care, and relevant PMTCT details."
         ),
     ),
     "immunisation": RubricSection(
         key="immunisation",
         label="Immunization",
         max_marks=3,
-        activation_tags={"infectious", "fever", "respiratory", "rash", "cns"},
+        activation_tags={"infectious", "fever", "respiratory", "rash", "cns", "infant"},
         max_age_months=60,
         guidance=(
-            "Activate in most younger children and infectious/rash/fever cases. Assess whether the "
-            "student checked immunisation status or asked to review the Road to Health Booklet/card."
+            "Activate in younger children and many infectious or fever presentations. Assess whether "
+            "the student checked immunisation status or asked to review the Road to Health card."
         ),
     ),
     "nutrition": RubricSection(
         key="nutrition",
         label="Nutrition",
         max_marks=3,
-        activation_tags={"infant", "diarrhoea", "vomiting", "failure_to_thrive", "malnutrition", "infectious"},
-        max_age_months=60,
+        activation_tags={
+            "infant",
+            "diarrhoea",
+            "vomiting",
+            "failure_to_thrive",
+            "malnutrition",
+            "nutrition",
+            "infectious",
+            "cardiac",
+        },
+        max_age_months=72,
         guidance=(
-            "Activate for infants, feeding, diarrhoea/vomiting, growth concerns, and many infectious "
-            "presentations. Assess breastfeeding, fluid intake, missed meals, feeding practices, and "
-            "allergies/intolerances."
+            "Activate in infants, feeding cases, diarrhoea/vomiting, malnutrition, poor growth, "
+            "and cardiac failure-to-thrive cases. Assess breastfeeding, fluid intake, solids, "
+            "missed meals, feeding practices, and relevant allergies or dietary issues."
         ),
     ),
     "past_history": RubricSection(
@@ -98,8 +125,8 @@ RUBRIC_SECTIONS: Dict[str, RubricSection] = {
         max_marks=5,
         usually_core=True,
         guidance=(
-            "Assess whether the student asked about past illnesses, admissions, surgery, medications, "
-            "allergies, and traditional therapies."
+            "Assess whether the student asked about past medical and surgical history, admissions, "
+            "medications, allergies, and use of traditional therapies."
         ),
     ),
     "family_history": RubricSection(
@@ -107,27 +134,39 @@ RUBRIC_SECTIONS: Dict[str, RubricSection] = {
         label="Family Medical History",
         max_marks=3,
         usually_core=True,
-        guidance="Assess whether the student asked about family illnesses, including TB exposure where relevant.",
+        guidance=(
+            "Assess whether the student asked about family illnesses, similar conditions, chronic disease, "
+            "and TB exposure where relevant."
+        ),
     ),
     "development": RubricSection(
         key="development",
         label="Developmental Milestones",
         max_marks=3,
-        activation_tags={"neurology", "development", "failure_to_thrive", "chronic"},
+        activation_tags={"development", "neurology", "failure_to_thrive", "chronic", "cerebral_palsy"},
         max_age_months=72,
         guidance=(
-            "Activate for younger children and especially neurological, developmental, chronic, and "
-            "poor-growth cases. Assess gross motor, fine motor, language, and social milestones."
+            "Activate in younger children and especially neurological, chronic, developmental, "
+            "or poor-growth cases. Assess gross motor, fine motor, language, and social development."
         ),
     ),
     "social_history": RubricSection(
         key="social_history",
         label="Social History & Travel",
         max_marks=3,
-        activation_tags={"infectious", "tb", "chronic", "environment", "diarrhoea", "respiratory", "renal"},
+        activation_tags={
+            "infectious",
+            "tb",
+            "chronic",
+            "environment",
+            "diarrhoea",
+            "respiratory",
+            "renal",
+            "nutrition",
+        },
         guidance=(
-            "Assess dwelling, caregivers, siblings, grants/income, environmental exposures, travel, "
-            "and relevant day-care/school context."
+            "Assess dwelling, who lives at home, siblings, grants or income stress where relevant, "
+            "exposures, school or crèche attendance, environmental risk, and travel where relevant."
         ),
     ),
     "assessment": RubricSection(
@@ -156,14 +195,19 @@ RUBRIC_SECTIONS: Dict[str, RubricSection] = {
         max_marks=15,
         always_core=True,
         guidance=(
-            "Assess organisation, clarity, logical flow, open questions, summarising, and overall "
-            "interview quality."
+            "Assess organisation, clarity, logical flow, use of open questions where appropriate, "
+            "summarising, professionalism, and overall interview quality."
         ),
     ),
 }
 
 
+# ============================================================
+# 30-case South African paediatric bank
+# ============================================================
+
 COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
+    # ---------------- Respiratory ----------------
     {
         "id": "resp_001",
         "title": "Childhood pneumonia",
@@ -248,6 +292,8 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
             "playing at home."
         ),
     },
+
+    # ---------------- Gastrointestinal ----------------
     {
         "id": "gi_001",
         "title": "Acute gastroenteritis with dehydration",
@@ -320,6 +366,8 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
             "gaining weight well."
         ),
     },
+
+    # ---------------- Neurological ----------------
     {
         "id": "neuro_001",
         "title": "Febrile seizure",
@@ -385,12 +433,14 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_label": "5-year-old",
         "age_months": 60,
         "system": "Neurological",
-        "tags": {"neurology", "development", "chronic"},
+        "tags": {"neurology", "development", "chronic", "cerebral_palsy"},
         "context": (
             "You are speaking to the caregiver of a 5-year-old with stiffness, delayed walking, "
             "and functional difficulties at home."
         ),
     },
+
+    # ---------------- Renal ----------------
     {
         "id": "renal_001",
         "title": "Urinary tract infection",
@@ -439,6 +489,8 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
             "and reduced urine output."
         ),
     },
+
+    # ---------------- General / other ----------------
     {
         "id": "gen_001",
         "title": "Possible neonatal sepsis",
@@ -469,7 +521,7 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_label": "14-month-old",
         "age_months": 14,
         "system": "General Paediatrics",
-        "tags": {"malnutrition", "failure_to_thrive", "infectious", "infant"},
+        "tags": {"malnutrition", "failure_to_thrive", "infectious", "infant", "nutrition"},
         "context": (
             "You are speaking to the caregiver of a 14-month-old with visible weight loss, "
             "swelling of the feet, poor appetite, and recurrent diarrhoea."
@@ -481,7 +533,7 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_label": "4-month-old",
         "age_months": 4,
         "system": "Cardiovascular",
-        "tags": {"cardiac", "failure_to_thrive", "infant", "chronic"},
+        "tags": {"cardiac", "failure_to_thrive", "infant", "chronic", "congenital"},
         "context": (
             "You are speaking to the mother of a 4-month-old baby who sweats during feeds, "
             "breathes fast, and is not gaining weight well."
@@ -493,7 +545,7 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "age_label": "2-year-old",
         "age_months": 24,
         "system": "Cardiovascular",
-        "tags": {"cardiac", "chronic"},
+        "tags": {"cardiac", "chronic", "congenital"},
         "context": (
             "You are speaking to the parent of a 2-year-old with episodes of becoming very blue, "
             "especially when upset, and squatting afterwards."
@@ -523,10 +575,14 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
             "and a rash."
         ),
     },
-}
+]
 
 
-DEFAULT_CAREGIVER_BY_CASE = {
+# ============================================================
+# Default caregiver / social details
+# ============================================================
+
+DEFAULT_CAREGIVER_BY_CASE: Dict[str, tuple] = {
     "Childhood pneumonia": ("female", "mother", "Thandeka", "Sipho", "male"),
     "Bronchiolitis": ("female", "mother", "Lerato", "Amahle", "female"),
     "Stridor / viral croup": ("female", "mother", "Nomsa", "Kabelo", "male"),
@@ -559,8 +615,7 @@ DEFAULT_CAREGIVER_BY_CASE = {
     "Congenital syphilis": ("female", "mother", "Thembi", "Baby Sethu", "male"),
 }
 
-
-CASE_SOCIALS = {
+CASE_SOCIALS: Dict[str, Dict[str, str]] = {
     "Respiratory": {
         "siblings": "He has one older sibling at home.",
         "residence": "We live in Soweto in a brick house with family.",
@@ -620,6 +675,10 @@ CASE_SOCIALS = {
 }
 
 
+# ============================================================
+# Helpers
+# ============================================================
+
 def _age_matches(section: RubricSection, age_months: int) -> bool:
     if section.min_age_months is not None and age_months < section.min_age_months:
         return False
@@ -651,17 +710,17 @@ def get_active_rubric(case_data: Dict[str, Any]) -> List[RubricSection]:
 
 def get_active_rubric_summary(case_data: Dict[str, Any]) -> Dict[str, Any]:
     active = get_active_rubric(case_data)
-    total_possible = sum(s.max_marks for s in active)
+    total_possible = sum(section.max_marks for section in active)
 
     return {
         "sections": [
             {
-                "key": s.key,
-                "label": s.label,
-                "max_marks": s.max_marks,
-                "guidance": s.guidance,
+                "key": section.key,
+                "label": section.label,
+                "max_marks": section.max_marks,
+                "guidance": section.guidance,
             }
-            for s in active
+            for section in active
         ],
         "raw_total_possible": total_possible,
     }
@@ -674,34 +733,38 @@ def renormalise_score(raw_score: float, raw_total_possible: float) -> float:
 
 
 def _enrich_case(case: Dict[str, Any]) -> Dict[str, Any]:
-    case = dict(case)
+    enriched = dict(case)
 
     gender, role, caregiver_name, child_name, child_sex = DEFAULT_CAREGIVER_BY_CASE.get(
-        case["title"],
+        enriched["title"],
         ("female", "mother", "Zanele", "Musa", "male"),
     )
 
-    socials = CASE_SOCIALS.get(case["system"], CASE_SOCIALS.get("General Paediatrics", {}))
-    child_age = case["age_label"].replace("-old", "")
+    socials = CASE_SOCIALS.get(enriched["system"], CASE_SOCIALS.get("General Paediatrics", {}))
+    child_age = enriched["age_label"].replace("-old", "")
 
-    case["caregiver_gender"] = gender
-    case["caregiver_role"] = role
-    case["caregiver_name"] = caregiver_name
-    case["child_name"] = child_name
-    case["child_age"] = child_age
-    case["child_sex"] = child_sex
-    case["presenting_complaint"] = case["title"]
-    case["case_summary"] = case["context"]
-    case["opening_line"] = f"Hello doctor, I'm {caregiver_name}, {child_name}'s {role}."
-    case["siblings"] = socials.get("siblings", "The child has siblings at home.")
-    case["residence"] = socials.get("residence", "We live with family in Johannesburg.")
-    case["birth_place"] = socials.get("birth_place", "The child was born at a public hospital.")
-    case["household_structure"] = socials.get("household_structure", "We live with family at home.")
-    case["school_or_daycare"] = socials.get("school_or_daycare", "The child attends school or crèche.")
-    case["caregiver_occupation"] = socials.get("caregiver_occupation", "I work nearby.")
+    enriched["caregiver_gender"] = gender
+    enriched["caregiver_role"] = role
+    enriched["caregiver_name"] = caregiver_name
+    enriched["child_name"] = child_name
+    enriched["child_age"] = child_age
+    enriched["child_sex"] = child_sex
+    enriched["presenting_complaint"] = enriched["title"]
+    enriched["case_summary"] = enriched["context"]
+    enriched["opening_line"] = f"Hello doctor, I'm {caregiver_name}, {child_name}'s {role}."
+    enriched["siblings"] = socials.get("siblings", "The child has siblings at home.")
+    enriched["residence"] = socials.get("residence", "We live with family in Johannesburg.")
+    enriched["birth_place"] = socials.get("birth_place", "The child was born at a public hospital.")
+    enriched["household_structure"] = socials.get("household_structure", "We live with family at home.")
+    enriched["school_or_daycare"] = socials.get("school_or_daycare", "The child attends school or crèche.")
+    enriched["caregiver_occupation"] = socials.get("caregiver_occupation", "I work nearby.")
 
-    return case
+    return enriched
 
+
+# ============================================================
+# Public API used by app.py
+# ============================================================
 
 def choose_case(
     requested_system: Optional[str] = None,
@@ -710,15 +773,17 @@ def choose_case(
     candidates = COMMON_SA_CASE_BANK
 
     if requested_system and requested_system.lower() != "random":
-        candidates = [
-            c for c in candidates
-            if c["system"].lower() == requested_system.lower()
-        ] or candidates
+        filtered = [
+            case for case in candidates
+            if case["system"].lower() == requested_system.lower()
+        ]
+        if filtered:
+            candidates = filtered
 
     if requested_title:
         matches = [
-            c for c in candidates
-            if requested_title.lower() in c["title"].lower()
+            case for case in candidates
+            if requested_title.lower() in case["title"].lower()
         ]
         if matches:
             candidates = matches
@@ -728,7 +793,7 @@ def choose_case(
 
 def build_assessor_schema(case_data: Dict[str, Any]) -> Dict[str, Any]:
     active = get_active_rubric(case_data)
-    raw_total = sum(s.max_marks for s in active)
+    raw_total = sum(section.max_marks for section in active)
 
     return {
         "case_metadata": {
@@ -746,12 +811,12 @@ def build_assessor_schema(case_data: Dict[str, Any]) -> Dict[str, Any]:
             "final_total_after_renormalisation": 100,
             "sections": [
                 {
-                    "key": s.key,
-                    "label": s.label,
-                    "max_marks": s.max_marks,
-                    "guidance": s.guidance,
+                    "key": section.key,
+                    "label": section.label,
+                    "max_marks": section.max_marks,
+                    "guidance": section.guidance,
                 }
-                for s in active
+                for section in active
             ],
         },
         "output_format": {
@@ -821,14 +886,17 @@ def build_assessor_system_prompt(case_data: Dict[str, Any], detailed: bool = Fal
     raw_total_possible = schema["rubric"]["raw_total_possible"]
 
     section_lines = []
-    for s in active_sections:
-        section_lines.append(f"- {s['label']} ({s['max_marks']}): {s['guidance']}")
+    for section in active_sections:
+        section_lines.append(
+            f"- {section['label']} ({section['max_marks']}): {section['guidance']}"
+        )
 
     joined_sections = "\n".join(section_lines)
 
     detail_instruction = (
         "Give fuller section-by-section reasoning and practical educational feedback."
-        if detailed else
+        if detailed
+        else
         "Keep the feedback concise, specific, and high-yield."
     )
 
@@ -888,6 +956,6 @@ def build_case_display_text(case_data: Dict[str, Any]) -> str:
 
 
 if __name__ == "__main__":
-    case = choose_case(requested_system="Random")
-    print(build_case_display_text(case))
-    print(get_active_rubric_summary(case))
+    example_case = choose_case(requested_system="Random")
+    print(build_case_display_text(example_case))
+    print(get_active_rubric_summary(example_case))
