@@ -293,6 +293,18 @@ def has_meaningful_interaction(messages) -> bool:
     return len(meaningful_turns) >= 2 or total_student_words >= 12
 
 
+def make_json_safe(obj):
+    if isinstance(obj, dict):
+        return {str(k): make_json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, set):
+        return sorted([make_json_safe(v) for v in obj])
+    if isinstance(obj, list):
+        return [make_json_safe(v) for v in obj]
+    if isinstance(obj, tuple):
+        return [make_json_safe(v) for v in obj]
+    return obj
+
+
 def insufficient_interaction_feedback_json(case_data):
     return {
         "case_summary": "Insufficient interaction to generate a valid assessment.",
@@ -450,7 +462,7 @@ def build_voice_url(session_id: str):
         "household_structure": st.session_state.case_data["household_structure"],
         "school_or_daycare": st.session_state.case_data["school_or_daycare"],
         "caregiver_occupation": st.session_state.case_data["caregiver_occupation"],
-        "case_data_json": json.dumps(st.session_state.case_data),
+        "case_data_json": json.dumps(make_json_safe(st.session_state.case_data)),
         "session_id": session_id,
         "study_number": st.session_state.study_number,
         "interaction_mode": st.session_state.active_mode,
@@ -722,7 +734,7 @@ for key, value in defaults.items():
 # =========================
 # Query params recovery
 # =========================
-query_session_id = str(get_query_param("session_id", "")).strip()
+query_session_id = str(getQueryParam("session_id", "")).strip() if False else str(get_query_param("session_id", "")).strip()
 if query_session_id:
     st.session_state.current_session_id = query_session_id
 
