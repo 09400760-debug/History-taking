@@ -26,8 +26,8 @@ RUBRIC_SECTIONS: Dict[str, RubricSection] = {
         always_core=True,
         guidance=(
             "Assess whether the student explored onset, duration, progression, severity, associated "
-            "symptoms, triggers, relieving factors, and impact on feeding, sleep, play, function, "
-            "or daily life. Strong performance should include at least 3 relevant follow-up questions."
+            "symptoms, triggers, relieving factors, and impact on feeding, sleep, play, function, or "
+            "daily life. Strong performance should include at least 3 relevant follow-up questions."
         ),
     ),
     "danger_signs": RubricSection(
@@ -36,9 +36,9 @@ RUBRIC_SECTIONS: Dict[str, RubricSection] = {
         max_marks=2,
         always_core=True,
         guidance=(
-            "Assess whether the student screened for important danger signs. Examples include "
-            "convulsions, lethargy, poor feeding, vomiting everything, severe dehydration, reduced "
-            "urine output, severe respiratory distress, and altered consciousness."
+            "Assess whether the student screened for important danger signs. Examples include convulsions, "
+            "lethargy, poor feeding, vomiting everything, severe dehydration, reduced urine output, severe "
+            "respiratory distress, and altered consciousness."
         ),
     ),
     "involved_system": RubricSection(
@@ -66,8 +66,8 @@ RUBRIC_SECTIONS: Dict[str, RubricSection] = {
         max_age_months=24,
         guidance=(
             "Activate especially in neonates, infants, developmental cases, congenital cases, poor growth, "
-            "or seizures. Assess antenatal, perinatal, neonatal history, maternal illness, HIV/syphilis testing, "
-            "and relevant PMTCT details."
+            "or seizures. Assess antenatal, perinatal, neonatal history, maternal illness, HIV/syphilis "
+            "testing, and relevant PMTCT details."
         ),
     ),
     "immunisation": RubricSection(
@@ -77,8 +77,8 @@ RUBRIC_SECTIONS: Dict[str, RubricSection] = {
         activation_tags={"infectious", "fever", "respiratory", "rash", "cns", "infant"},
         max_age_months=60,
         guidance=(
-            "Activate in younger children and many infectious or fever presentations. Assess whether the student "
-            "checked immunisation status or asked to review the Road to Health card."
+            "Activate in younger children and many infectious or fever presentations. Assess whether the "
+            "student checked immunisation status or asked to review the Road to Health card."
         ),
     ),
     "nutrition": RubricSection(
@@ -89,8 +89,8 @@ RUBRIC_SECTIONS: Dict[str, RubricSection] = {
         max_age_months=72,
         guidance=(
             "Activate in infants, feeding cases, diarrhoea/vomiting, malnutrition, poor growth, and cardiac "
-            "failure-to-thrive cases. Assess breastfeeding, fluid intake, solids, missed meals, feeding practices, "
-            "and relevant allergies or dietary issues."
+            "failure-to-thrive cases. Assess breastfeeding, fluid intake, solids, missed meals, feeding "
+            "practices, and relevant allergies or dietary issues."
         ),
     ),
     "past_history": RubricSection(
@@ -99,8 +99,8 @@ RUBRIC_SECTIONS: Dict[str, RubricSection] = {
         max_marks=5,
         usually_core=True,
         guidance=(
-            "Assess whether the student asked about past medical history, prior admissions, surgery, medications, "
-            "allergies, and traditional therapies."
+            "Assess whether the student asked about past medical history, prior admissions, surgery, "
+            "medications, allergies, and traditional therapies."
         ),
     ),
     "family_history": RubricSection(
@@ -120,8 +120,8 @@ RUBRIC_SECTIONS: Dict[str, RubricSection] = {
         activation_tags={"development", "neurology", "failure_to_thrive", "chronic", "cerebral_palsy"},
         max_age_months=72,
         guidance=(
-            "Activate in younger children and especially neurological, developmental, chronic, or poor-growth cases. "
-            "Assess gross motor, fine motor, language, and social development."
+            "Activate in younger children and especially neurological, developmental, chronic, or poor-growth "
+            "cases. Assess gross motor, fine motor, language, and social development."
         ),
     ),
     "social_history": RubricSection(
@@ -140,8 +140,8 @@ RUBRIC_SECTIONS: Dict[str, RubricSection] = {
         max_marks=20,
         always_core=True,
         guidance=(
-            "Assess whether the student gave a logical summary and differential diagnosis, including at least one "
-            "reasonable alternative differential."
+            "Assess whether the student gave a logical summary and differential diagnosis, including at least "
+            "one reasonable alternative differential."
         ),
     ),
     "empathy": RubricSection(
@@ -390,9 +390,9 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "context": "A 6-year-old has fever, headache, vomiting, and increasing drowsiness.",
         "expected_diagnosis": "Meningitis / meningoencephalitis",
         "expected_differentials": [
-            "Severe malaria depending on setting",
             "Brain abscess",
             "Raised intracranial pressure from another cause",
+            "Severe systemic infection with encephalopathy",
         ],
     },
     {
@@ -621,7 +621,7 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
         "expected_differentials": [
             "Neonatal sepsis",
             "Congenital viral infection",
-            "Allergic / dermatological condition with poor feeding",
+            "Dermatological condition with poor feeding",
         ],
     },
 ]
@@ -913,6 +913,7 @@ def build_assessor_system_prompt(case_data: Dict[str, Any], detailed: bool = Fal
         section_lines.append(f"- {section['label']} ({section['max_marks']}): {section['guidance']}")
 
     joined_sections = "\n".join(section_lines)
+    expected_differentials = case_data.get("expected_differentials", [])
 
     detail_instruction = (
         "Give fuller section-by-section reasoning and practical educational feedback."
@@ -920,8 +921,6 @@ def build_assessor_system_prompt(case_data: Dict[str, Any], detailed: bool = Fal
         else
         "Keep the feedback concise, specific, and high-yield."
     )
-
-    expected_differentials = case_data.get("expected_differentials", [])
 
     return f"""
 You are an expert assessor for a paediatric history-taking encounter using a dynamic Wits-style rubric.
@@ -969,6 +968,7 @@ OUTPUT RULES:
   case_summary
   true_case_diagnosis
   important_expected_differentials
+  key_missed_history_questions
   scores
   raw_score_total
   raw_total_possible
@@ -986,19 +986,6 @@ STYLE:
 - Be fair, specific, and educational.
 - Reward relevant prioritisation and not just checklist behaviour.
 - Explicitly comment on how well the student's history supports or misses the true diagnosis and differentials.
+- List key missed history questions that would have helped reach the diagnosis more confidently.
 - {detail_instruction}
 """.strip()
-
-
-def build_case_display_text(case_data: Dict[str, Any]) -> str:
-    return (
-        f"{case_data.get('title')} | {case_data.get('age_label')} | "
-        f"{case_data.get('system')}\n\n"
-        f"{case_data.get('context')}"
-    )
-
-
-if __name__ == "__main__":
-    example_case = choose_case(requested_system="Random")
-    print(build_case_display_text(example_case))
-    print(get_active_rubric_summary(example_case))
