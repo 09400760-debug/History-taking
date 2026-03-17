@@ -65,37 +65,17 @@ st.markdown(
     section[data-testid="stSidebar"] {
         background: #ffffff !important;
     }
-
-    @media (max-width: 768px) {
-        html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"], .main {
-            background: #ffffff !important;
-        }
-
-        .main .block-container {
-            padding-top: 0.5rem;
-            padding-left: 0.9rem;
-            padding-right: 0.9rem;
-            padding-bottom: 2rem;
-            background: #ffffff !important;
-        }
-    }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# =========================
-# Config
-# =========================
 api_key = st.secrets["OPENAI_API_KEY"]
 client = OpenAI(api_key=api_key)
 
 VOICE_SERVER_BASE_URL = "https://history-taking-voice.onrender.com"
 STREAMLIT_APP_URL = "https://history-takinggit-eexzk8appdm3vzfej2vtuzn.streamlit.app/"
 
-# =========================
-# Constants
-# =========================
 APP_TITLE = "🩺 History-taking practice bot"
 WELCOME_TEXT = (
     "This space gives you opportunities to practise paediatric history taking. "
@@ -107,19 +87,14 @@ TEXT_PRECEPTOR_INVITE = "Would you like to move to preceptor mode?"
 TEXT_SUMMARY_QUESTION = "Please summarise the case briefly in one or two sentences."
 TEXT_DIAGNOSIS_QUESTION = "What is your most likely diagnosis?"
 TEXT_DIFFERENTIALS_QUESTION = "What are your main differential diagnoses?"
-TEXT_CONFIRM_SUMMARY = "Are you finished with your summary?"
-TEXT_CONFIRM_DIAGNOSIS = "Are you finished with your diagnosis?"
-TEXT_CONFIRM_DIFFERENTIALS = "Do you have any other differential diagnoses, or are you finished?"
+TEXT_END_CONFIRM = "Are you finished and ready for feedback?"
 TEXT_FINAL_LINE = "Thank you. I will now generate your feedback."
 
 VOICE_COMPLETION_HINTS = [
     "thank you i will now generate your feedback",
 ]
 
-VISIBLE_INTERACTION_MODES = [
-    "Text only",
-    "Realtime voice",
-]
+VISIBLE_INTERACTION_MODES = ["Text only", "Realtime voice"]
 
 VISIBLE_AGE_OPTIONS = [
     "Random",
@@ -140,32 +115,13 @@ VISIBLE_SYSTEM_OPTIONS = [
     "Respiratory",
 ]
 
-RANDOM_AGE_POOL = [
-    "Neonate",
-    "Infant",
-    "1-5 years",
-    "6-10 years",
-    "11-19 years",
-]
-
-RANDOM_SYSTEM_POOL = [
-    "Cardiovascular",
-    "Gastrointestinal",
-    "Musculoskeletal",
-    "Neurological",
-    "Renal",
-    "Respiratory",
-]
+RANDOM_AGE_POOL = ["Neonate", "Infant", "1-5 years", "6-10 years", "11-19 years"]
+RANDOM_SYSTEM_POOL = ["Cardiovascular", "Gastrointestinal", "Musculoskeletal", "Neurological", "Renal", "Respiratory"]
 
 STUDY_NUMBER_MAX = 126
-STUDY_NUMBER_OPTIONS = ["Please select study number"] + [
-    f"1-{i:03d}" for i in range(1, STUDY_NUMBER_MAX + 1)
-]
+STUDY_NUMBER_OPTIONS = ["Please select study number"] + [f"1-{i:03d}" for i in range(1, STUDY_NUMBER_MAX + 1)]
 
 
-# =========================
-# Helpers
-# =========================
 def normalize_text(text: str) -> str:
     return re.sub(r"\s+", " ", str(text).strip().lower())
 
@@ -204,8 +160,7 @@ def is_yes(text: str) -> bool:
     t = normalize_text(text)
     yes_values = {
         "yes", "y", "yeah", "yep", "okay", "ok", "sure", "please do",
-        "go ahead", "continue", "yes please", "okay yes", "ok yes",
-        "i am finished", "finished", "that's all", "thats all", "done"
+        "go ahead", "continue", "yes please", "okay yes", "ok yes"
     }
     return t in yes_values or t.startswith("yes ")
 
@@ -234,7 +189,6 @@ def looks_like_finished_history(text: str) -> bool:
         "i have no further questions",
         "end history",
         "that is all",
-        "that is complete",
         "history complete",
         "we are done",
         "can we move to preceptor",
@@ -247,13 +201,11 @@ def looks_like_finished_history(text: str) -> bool:
 def looks_like_voice_session_complete(messages) -> bool:
     if not messages:
         return False
-
     assistant_lines = [
         normalize_text(m.get("content", ""))
         for m in messages
         if m.get("role") == "assistant"
     ]
-
     for line in reversed(assistant_lines[-12:]):
         if any(hint in line for hint in VOICE_COMPLETION_HINTS):
             return True
@@ -262,20 +214,14 @@ def looks_like_voice_session_complete(messages) -> bool:
 
 def looks_like_greeting_only(text: str) -> bool:
     return normalize_text(text) in {
-        "hello", "hi", "hey", "good morning", "good afternoon", "good evening", "hello there", "hi there"
+        "hello", "hi", "hey", "good morning", "good afternoon", "good evening",
+        "hello there", "hi there"
     }
 
 
 def resolve_random_selection(selected_age: str, selected_system: str):
-    resolved_age = selected_age
-    resolved_system = selected_system
-
-    if selected_age == "Random":
-        resolved_age = random.choice(RANDOM_AGE_POOL)
-
-    if selected_system == "Random":
-        resolved_system = random.choice(RANDOM_SYSTEM_POOL)
-
+    resolved_age = selected_age if selected_age != "Random" else random.choice(RANDOM_AGE_POOL)
+    resolved_system = selected_system if selected_system != "Random" else random.choice(RANDOM_SYSTEM_POOL)
     return resolved_age, resolved_system
 
 
@@ -299,7 +245,6 @@ def is_meaningful_student_text(text: str) -> bool:
     }
     if t in trivial:
         return False
-
     word_count = len([w for w in re.split(r"\s+", t) if w])
     return word_count >= 4
 
@@ -316,6 +261,7 @@ def insufficient_interaction_feedback_json(case_data):
         "case_summary": "Insufficient interaction to generate a valid assessment.",
         "true_case_diagnosis": case_data.get("expected_diagnosis"),
         "important_expected_differentials": case_data.get("expected_differentials", []),
+        "key_missed_history_questions": [],
         "scores": {},
         "raw_score_total": 0,
         "raw_total_possible": 0,
@@ -327,8 +273,8 @@ def insufficient_interaction_feedback_json(case_data):
             "Complete the history-taking interaction before requesting assessment."
         ],
         "overall_feedback": (
-            "No valid assessment was possible because there was insufficient interaction to judge the student's "
-            "history-taking or diagnostic reasoning."
+            "No valid assessment was possible because there was insufficient interaction to judge the "
+            "student's history-taking or diagnostic reasoning."
         ),
     }
 
@@ -358,8 +304,7 @@ Transcript:
     text = response.output_text.strip()
 
     try:
-        data = json.loads(text)
-        return data
+        return json.loads(text)
     except Exception:
         match = re.search(r"\{.*\}", text, re.DOTALL)
         if match:
@@ -372,6 +317,7 @@ Transcript:
         "case_summary": "Assessment could not be parsed cleanly, but feedback was generated.",
         "true_case_diagnosis": case_data.get("expected_diagnosis"),
         "important_expected_differentials": case_data.get("expected_differentials", []),
+        "key_missed_history_questions": [],
         "scores": {},
         "raw_score_total": 0,
         "raw_total_possible": 0,
@@ -416,7 +362,6 @@ def import_voice_transcript(session_id: str | None):
         text = str(line.get("text", "")).strip()
         if not text:
             continue
-
         if speaker == "Student":
             messages.append({"role": "user", "content": text})
         elif speaker == "Bot":
@@ -496,9 +441,6 @@ def reset_case_state():
     st.session_state.active_mode = None
     st.session_state.caregiver_system_prompt = ""
     st.session_state.assessor_schema = {}
-    st.session_state.summary_response = ""
-    st.session_state.diagnosis_response = ""
-    st.session_state.differentials_response = ""
 
 
 def apply_imported_messages(imported_obj, session_id=None, status_message="Voice transcript imported automatically."):
@@ -576,6 +518,12 @@ def render_assessment_json(data: dict, detailed: bool = False):
         for item in diffs:
             st.write(f"- {item}")
 
+    missed_history = data.get("key_missed_history_questions", [])
+    if missed_history:
+        st.markdown("**Key missed history questions**")
+        for item in missed_history:
+            st.write(f"- {item}")
+
     case_summary = data.get("case_summary")
     if case_summary:
         st.markdown("**Case summary**")
@@ -589,7 +537,7 @@ def render_assessment_json(data: dict, detailed: bool = False):
 
     missed = data.get("missed_opportunities", [])
     if missed:
-        st.markdown("**Priority areas for improvement**")
+        st.markdown("**Weaknesses / missed opportunities**")
         for item in missed:
             st.write(f"- {item}")
 
@@ -640,71 +588,32 @@ def run_text_state_machine(user_text: str):
         return "Please answer yes or no."
 
     if phase == "await_summary_answer":
-        st.session_state.summary_response = user_text
-        st.session_state.text_phase = "confirm_summary_done"
-        return TEXT_CONFIRM_SUMMARY
-
-    if phase == "confirm_summary_done":
-        if is_yes(user_text):
-            st.session_state.text_phase = "await_diagnosis_answer"
-            return TEXT_DIAGNOSIS_QUESTION
-        if is_no(user_text):
-            st.session_state.text_phase = "await_summary_answer"
-            return "Okay, please continue your summary."
-        return "Please answer yes or no."
+        st.session_state.text_phase = "await_diagnosis_answer"
+        return TEXT_DIAGNOSIS_QUESTION
 
     if phase == "await_diagnosis_answer":
-        st.session_state.diagnosis_response = user_text
-        st.session_state.text_phase = "confirm_diagnosis_done"
-        return TEXT_CONFIRM_DIAGNOSIS
-
-    if phase == "confirm_diagnosis_done":
-        if is_yes(user_text):
-            st.session_state.text_phase = "await_differentials_answer"
-            return TEXT_DIFFERENTIALS_QUESTION
-        if is_no(user_text):
-            st.session_state.text_phase = "await_diagnosis_answer"
-            return "Okay, please continue your diagnosis."
-        return "Please answer yes or no."
+        st.session_state.text_phase = "await_differentials_answer"
+        return TEXT_DIFFERENTIALS_QUESTION
 
     if phase == "await_differentials_answer":
-        st.session_state.differentials_response = user_text
-        st.session_state.text_phase = "confirm_differentials_done"
-        return TEXT_CONFIRM_DIFFERENTIALS
+        st.session_state.text_phase = "await_final_confirmation"
+        return TEXT_END_CONFIRM
 
-    if phase == "confirm_differentials_done":
-        t = normalize_text(user_text)
-
-        continue_markers = {
-            "yes", "yeah", "yes please", "i have more", "more", "continue"
-        }
-        finish_markers = {
-            "no", "finished", "i am finished", "done", "that's all", "thats all"
-        }
-
-        if t in continue_markers:
-            st.session_state.text_phase = "await_differentials_answer"
-            return "Okay, please continue with your differential diagnoses."
-
-        if t in finish_markers or is_no(user_text):
+    if phase == "await_final_confirmation":
+        if is_yes(user_text):
             st.session_state.text_phase = "post_presentation"
             st.session_state.presentation_done = True
             st.session_state.mode = "post_presentation"
             st.session_state.case_ended_at = now_iso()
             return TEXT_FINAL_LINE
-
-        if is_yes(user_text):
+        if is_no(user_text):
             st.session_state.text_phase = "await_differentials_answer"
             return "Okay, please continue with your differential diagnoses."
-
-        return "Please say whether you have more differential diagnoses or whether you are finished."
+        return "Please answer yes or no."
 
     return "Conversation complete."
 
 
-# =========================
-# Session state init
-# =========================
 defaults = {
     "messages": [],
     "case_data": None,
@@ -732,18 +641,13 @@ defaults = {
     "transcript_download_name": None,
     "caregiver_system_prompt": "",
     "assessor_schema": {},
-    "summary_response": "",
-    "diagnosis_response": "",
-    "differentials_response": "",
 }
 
 for key, value in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = value
 
-# =========================
-# Query params recovery
-# =========================
+
 query_session_id = str(get_query_param("session_id", "")).strip()
 if query_session_id:
     st.session_state.current_session_id = query_session_id
@@ -751,9 +655,6 @@ if query_session_id:
 import_voice_flag = str(get_query_param("import_voice", "0")).strip()
 auto_feedback_flag = str(get_query_param("auto_feedback", "0")).strip()
 
-# =========================
-# Auto-import when returning from voice page
-# =========================
 if import_voice_flag == "1":
     imported_obj, import_error = import_voice_transcript(st.session_state.current_session_id)
 
@@ -779,15 +680,10 @@ if import_voice_flag == "1":
     clear_return_query_params()
     st.rerun()
 
-# =========================
-# Header
-# =========================
+
 st.title(APP_TITLE)
 st.info(WELCOME_TEXT)
 
-# =========================
-# Setup section
-# =========================
 if not st.session_state.case_data and not st.session_state.messages:
     st.markdown("### Session setup")
 
@@ -840,7 +736,6 @@ if not st.session_state.case_data and not st.session_state.messages:
             try:
                 resolved_age, resolved_system = resolve_random_selection(selected_age, selected_system)
                 case_data = choose_case(requested_system=resolved_system)
-
                 caregiver_system_prompt = build_history_taking_system_prompt(case_data)
                 assessor_schema = build_assessor_schema(case_data)
                 session_id = str(uuid.uuid4())
@@ -866,9 +761,6 @@ if not st.session_state.case_data and not st.session_state.messages:
             except Exception as e:
                 st.error(f"Could not generate case: {e}")
 
-# =========================
-# Voice mode
-# =========================
 if (
     st.session_state.case_data
     and st.session_state.active_mode == "Realtime voice"
@@ -882,9 +774,6 @@ if (
         "the app should return here and import the transcript automatically."
     )
 
-# =========================
-# Status
-# =========================
 status_value = st.session_state.last_voice_import_status
 if isinstance(status_value, dict):
     level = status_value.get("level", "info")
@@ -899,9 +788,6 @@ if isinstance(status_value, dict):
 elif isinstance(status_value, str) and status_value.strip():
     st.info(status_value.strip())
 
-# =========================
-# Conversation display
-# =========================
 show_live_transcript = (
     st.session_state.case_data
     and not st.session_state.presentation_done
@@ -914,9 +800,6 @@ if show_live_transcript:
         with st.chat_message(m["role"]):
             st.write(m["content"])
 
-# =========================
-# Text mode
-# =========================
 if (
     st.session_state.case_data
     and st.session_state.active_mode == "Text only"
@@ -944,9 +827,6 @@ elif st.session_state.mode == "post_presentation":
 elif st.session_state.messages and not st.session_state.case_data:
     st.info("Imported voice transcript loaded.")
 
-# =========================
-# Feedback
-# =========================
 if st.session_state.presentation_done:
     st.markdown("### Feedback")
 
@@ -979,9 +859,6 @@ if st.session_state.presentation_done:
             with st.expander("Detailed feedback", expanded=True):
                 render_assessment_json(st.session_state.detailed_assessment_generated, detailed=True)
 
-# =========================
-# Transcript tools
-# =========================
 if st.session_state.presentation_done and st.session_state.messages:
     st.markdown("### Transcript")
 
@@ -998,9 +875,6 @@ if st.session_state.presentation_done and st.session_state.messages:
         use_container_width=True,
     )
 
-# =========================
-# Reflection
-# =========================
 if st.session_state.presentation_done:
     st.markdown("### Reflection")
 
