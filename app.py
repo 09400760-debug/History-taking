@@ -238,7 +238,7 @@ def looks_like_finished_history(text: str) -> bool:
     return any(p in t for p in phrases)
 
 
-def looks_like_voice_session_complete(messages) -> bool:
+def looks_like_voice_session_complete(messages):
     if not messages:
         return False
 
@@ -340,6 +340,72 @@ def coerce_grade(value):
     if g > 5:
         return 5
     return g
+
+
+def looks_like_history_question(text: str) -> bool:
+    t = normalize_text(text)
+    question_starters = [
+        "how old", "when did", "when was", "what happened", "what brought",
+        "why did", "how long", "has she", "has he", "did she", "did he",
+        "is she", "is he", "does she", "does he", "was she", "was he",
+        "can you tell me", "tell me about", "any", "who lives", "what is her",
+        "what is his", "what are", "has there been", "do you know", "was there"
+    ]
+    if "?" in text:
+        return True
+    return any(t.startswith(p) for p in question_starters)
+
+
+def looks_like_summary_response(text: str) -> bool:
+    t = normalize_text(text)
+    if looks_like_history_question(text):
+        return False
+    if len(t.split()) < 5:
+        return False
+    summary_markers = [
+        "this is", "this child", "this patient", "a child with", "a 6-year-old",
+        "a 2-year-old", "a 4-year-old", "a 9-year-old", "child with", "presentation of",
+        "likely", "with", "who has"
+    ]
+    return any(marker in t for marker in summary_markers)
+
+
+def looks_like_diagnosis_response(text: str) -> bool:
+    t = normalize_text(text)
+    if looks_like_history_question(text):
+        return False
+    if len(t.split()) > 20:
+        return False
+    diagnosis_markers = [
+        "pyelonephritis", "uti", "urinary tract infection", "epilepsy", "meningitis",
+        "pneumonia", "bronchiolitis", "asthma", "tuberculosis", "tb", "appendicitis",
+        "gastroenteritis", "dehydration", "sepsis", "nephrotic syndrome", "nephritic syndrome",
+        "reflux", "cerebral palsy", "migraine", "febrile seizure", "pertussis",
+        "croup", "foreign body aspiration", "congenital heart disease", "malnutrition",
+        "hepatitis", "dysentery", "constipation", "rickets", "congenital syphilis"
+    ]
+    return any(marker in t for marker in diagnosis_markers)
+
+
+def looks_like_differentials_response(text: str) -> bool:
+    t = normalize_text(text)
+    if looks_like_history_question(text):
+        return False
+    differential_markers = [
+        ",", ";", "or", "also", "another", "differential", "possibility", "could be"
+    ]
+    if len(t.split()) < 2:
+        return False
+    return any(marker in t for marker in differential_markers)
+
+
+def caregiver_reply_from_messages(messages, caregiver_system_prompt):
+    response = client.responses.create(
+        model="gpt-4.1-mini",
+        instructions=caregiver_system_prompt,
+        input=messages,
+    )
+    return response.output_text.strip()
 
 
 def normalize_assessment_payload(data: dict, case_data: dict | None = None) -> dict:
@@ -753,12 +819,7 @@ def run_text_state_machine(user_text: str):
         if looks_like_greeting_only(user_text):
             return "Good afternoon, doctor." if "afternoon" in normalize_text(user_text) else "Hello, doctor."
 
-        response = client.responses.create(
-            model="gpt-4.1-mini",
-            instructions=st.session_state.caregiver_system_prompt,
-            input=st.session_state.messages,
-        )
-        return response.output_text.strip()
+        return caregiver_reply_from_messages(st.session_state.messages, st.session_state.caregiver_system_prompt)
 
     if phase == "await_preceptor_choice":
         if is_yes(user_text):
@@ -770,18 +831,67 @@ def run_text_state_machine(user_text: str):
         return "Please answer yes or no."
 
     if phase == "await_summary_answer":
+        if looks_like_history_question(user_text):
+            st.session_state.text_phase = "caregiver"
+            caregiver_text = caregiver_reply_from_messages(
+                st.session_state.messages,
+                st.session_state.caregiver_system_prompt,
+            )
+            return caregiver_text
+
+        if not looks_like_summary_response(user_text):
+            return (
+                "That seems more like another question or an incomplete summary. "
+                "Please summarise the case briefly in one or two sentences, or continue the history first."
+            )
+
         st.session_state.text_phase = "await_diagnosis_answer"
         return TEXT_DIAGNOSIS_QUESTION
 
     if phase == "await_diagnosis_answer":
+        if looks_like_history_question(user_text):
+            st.session_state.text_phase = "caregiver"
+            caregiver_text = caregiver_reply_from_messages(
+                st.session_state.messages,
+                st.session_state.caregiver_system_prompt,
+            )
+            return caregiver_text
+
+        if not looks_like_diagnosis_response(user_text):
+            return (
+                "That does not yet look like a diagnosis. "
+                "Please state your single most likely diagnosis, or return to the history if you need more information."
+            )
+
         st.session_state.text_phase = "await_differentials_answer"
         return TEXT_DIFFERENTIALS_QUESTION
 
     if phase == "await_differentials_answer":
+        if looks_like_history_question(user_text):
+            st.session_state.text_phase = "caregiver"
+            caregiver_text = caregiver_reply_from_messages(
+                st.session_state.messages,
+                st.session_state.caregiver_system_prompt,
+            )
+            return caregiver_text
+
+        if not looks_like_differentials_response(user_text):
+            return (
+                "Please list your main differential diagnoses, or continue the history if you need more information."
+            )
+
         st.session_state.text_phase = "await_final_confirmation"
         return TEXT_END_CONFIRM
 
     if phase == "await_final_confirmation":
+        if looks_like_history_question(user_text):
+            st.session_state.text_phase = "caregiver"
+            caregiver_text = caregiver_reply_from_messages(
+                st.session_state.messages,
+                st.session_state.caregiver_system_prompt,
+            )
+            return caregiver_text
+
         if is_yes(user_text):
             st.session_state.text_phase = "post_presentation"
             st.session_state.presentation_done = True
@@ -831,7 +941,6 @@ defaults = {
 for key, value in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = value
-
 
 # =========================
 # Query params recovery
