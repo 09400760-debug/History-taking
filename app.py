@@ -188,6 +188,64 @@ def format_duration(started_at: str | None, ended_at: str | None) -> str:
     return f"{mins} mins"
 
 
+GRADE_LABELS = {
+    1: "Early Development",
+    2: "Emerging Competence",
+    3: "Competent",
+    4: "Highly Competent",
+    5: "Exceptional Competence",
+}
+
+
+def grade_label_from_value(grade):
+    try:
+        grade_int = int(grade)
+    except Exception:
+        return None
+    return GRADE_LABELS.get(grade_int)
+
+
+def score_to_grade(score):
+    try:
+        score_value = float(score)
+    except Exception:
+        return None
+
+    if score_value < 20:
+        return 1
+    if score_value < 40:
+        return 2
+    if score_value < 60:
+        return 3
+    if score_value < 80:
+        return 4
+    return 5
+
+
+def ensure_grade_fields(data: dict):
+    if not isinstance(data, dict):
+        return data
+
+    grade = data.get("grade")
+    grade_label = data.get("grade_label")
+
+    if grade is None:
+        legacy_score = data.get("final_score_out_of_100")
+        derived_grade = score_to_grade(legacy_score)
+        if derived_grade is not None:
+            data["grade"] = derived_grade
+            data["grade_label"] = GRADE_LABELS.get(derived_grade)
+    else:
+        derived_label = grade_label_from_value(grade)
+        if derived_label and not grade_label:
+            data["grade_label"] = derived_label
+
+    if not data.get("diagnosis"):
+        data["diagnosis"] = data.get("true_case_diagnosis")
+
+    return data
+
+
 def is_yes(text: str) -> bool:
     t = normalize_text(text)
     yes_values = {
@@ -307,14 +365,10 @@ def make_json_safe(obj):
 
 def insufficient_interaction_feedback_json(case_data):
     return {
-        "case_summary": "Insufficient interaction to generate a valid assessment.",
-        "true_case_diagnosis": case_data.get("expected_diagnosis") if case_data else None,
-        "important_expected_differentials": case_data.get("expected_differentials", []) if case_data else [],
+        "grade": 1,
+        "grade_label": "Early Development",
+        "diagnosis": case_data.get("expected_diagnosis") if case_data else None,
         "key_missed_history_questions": [],
-        "scores": {},
-        "raw_score_total": 0,
-        "raw_total_possible": 0,
-        "final_score_out_of_100": 0,
         "strengths": [
             "No assessable strengths could be identified because there was insufficient student interaction."
         ],
@@ -333,17 +387,13 @@ def call_assessment(messages, detailed: bool = False):
 
     if not case_data:
         return {
-            "case_summary": "The transcript was imported, but the hidden case data could not be restored for assessment.",
-            "true_case_diagnosis": None,
-            "important_expected_differentials": [],
+            "grade": 1,
+            "grade_label": "Early Development",
+            "diagnosis": None,
             "key_missed_history_questions": [],
-            "scores": {},
-            "raw_score_total": 0,
-            "raw_total_possible": 0,
-            "final_score_out_of_100": 0,
             "strengths": [],
             "missed_opportunities": [
-                "The session metadata was incomplete, so the app could not reconstruct the case for scoring."
+                "The session metadata was incomplete, so the app could not reconstruct the case for grading."
             ],
             "overall_feedback": (
                 "Assessment could not run because the case metadata was missing after import."
@@ -372,28 +422,24 @@ Transcript:
     text = response.output_text.strip()
 
     try:
-        return json.loads(text)
+        return ensure_grade_fields(json.loads(text))
     except Exception:
         match = re.search(r"\{.*\}", text, re.DOTALL)
         if match:
             try:
-                return json.loads(match.group(0))
+                return ensure_grade_fields(json.loads(match.group(0)))
             except Exception:
                 pass
 
-    return {
-        "case_summary": "Assessment could not be parsed cleanly, but feedback was generated.",
-        "true_case_diagnosis": case_data.get("expected_diagnosis"),
-        "important_expected_differentials": case_data.get("expected_differentials", []),
+    return ensure_grade_fields({
+        "grade": 1,
+        "grade_label": "Early Development",
+        "diagnosis": case_data.get("expected_diagnosis"),
         "key_missed_history_questions": [],
-        "scores": {},
-        "raw_score_total": 0,
-        "raw_total_possible": 0,
-        "final_score_out_of_100": 0,
         "strengths": [],
         "missed_opportunities": [],
         "overall_feedback": text,
-    }
+    })
 
 
 def import_voice_transcript(session_id: str | None):
@@ -583,14 +629,20 @@ def render_assessment_json(data: dict, detailed: bool = False):
         st.write(data)
         return
 
-    score = data.get("final_score_out_of_100")
-    if score is not None:
-        st.markdown(f"**Final score:** {score}/100")
+    data = ensure_grade_fields(dict(data))
 
-    true_dx = data.get("true_case_diagnosis")
-    if true_dx:
-        st.markdown("**Most likely diagnosis in this case**")
-        st.write(true_dx)
+    grade = data.get("grade")
+    grade_label = data.get("grade_label")
+    if grade is not None:
+        if grade_label:
+            st.markdown(f"**Grade:** {grade} – {grade_label}")
+        else:
+            st.markdown(f"**Grade:** {grade}")
+
+    diagnosis = data.get("diagnosis") or data.get("true_case_diagnosis")
+    if diagnosis:
+        st.markdown("**Most likely diagnosis**")
+        st.write(diagnosis)
 
     diffs = data.get("important_expected_differentials", [])
     if diffs:
@@ -624,13 +676,16 @@ def render_assessment_json(data: dict, detailed: bool = False):
     if detailed:
         scores = data.get("scores", {})
         if scores:
-            st.markdown("**Domain-based scoring comments**")
+            st.markdown("**Domain-based comments**")
             for key, value in scores.items():
                 label = key.replace("_", " ").title()
                 section_score = value.get("score", "")
                 max_marks = value.get("max_marks", "")
                 reasoning = value.get("reasoning", "")
-                st.write(f"**{label}:** {section_score}/{max_marks}")
+                if section_score != "" and max_marks != "":
+                    st.write(f"**{label}:** {section_score}/{max_marks}")
+                else:
+                    st.write(f"**{label}:**")
                 if reasoning:
                     st.write(reasoning)
 
@@ -1013,4 +1068,6 @@ if st.session_state.presentation_done:
                 mime="text/plain",
                 use_container_width=True,
             )
+
+
 
