@@ -412,17 +412,17 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
     },
     {
         "id": "neuro_004",
-        "title": "Epilepsy follow-up history",
+        "title": "Recurrent seizures",
         "age_label": "9-year-old",
         "age_months": 108,
         "system": "Neurological",
         "tags": {"neurology", "seizure", "chronic"},
-        "context": "A 9-year-old with recurrent seizures is on chronic medication.",
+        "context": "A 9-year-old has had three episodes of loss of consciousness with jerking movements over the past 2 months.",
         "expected_diagnosis": "Epilepsy",
         "expected_differentials": [
-            "Breakthrough seizures from poor adherence",
             "Space-occupying lesion",
             "Metabolic cause of seizures",
+            "Psychogenic non-epileptic events",
         ],
     },
     {
@@ -442,12 +442,12 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
     },
     {
         "id": "neuro_006",
-        "title": "Cerebral palsy functional history",
+        "title": "Delayed walking with stiffness",
         "age_label": "5-year-old",
         "age_months": 60,
         "system": "Neurological",
         "tags": {"neurology", "development", "chronic", "cerebral_palsy"},
-        "context": "A 5-year-old has stiffness, delayed walking, and functional difficulties at home.",
+        "context": "A 5-year-old has long-standing stiffness in the legs, delayed walking, and difficulty keeping up with other children.",
         "expected_diagnosis": "Cerebral palsy",
         "expected_differentials": [
             "Neuromuscular disorder",
@@ -644,9 +644,9 @@ DEFAULT_CAREGIVER_BY_CASE: Dict[str, tuple] = {
     "Febrile seizure": ("female", "mother", "Zanele", "Lwazi", "male"),
     "Meningitis / meningoencephalitis concern": ("male", "father", "Mandla", "Asanda", "female"),
     "Headache / migraine-type presentation": ("female", "mother", "Nandi", "Yanga", "female"),
-    "Epilepsy follow-up history": ("female", "aunt", "Nomfundo", "Sibusiso", "male"),
+    "Recurrent seizures": ("female", "aunt", "Nomfundo", "Sibusiso", "male"),
     "Possible raised ICP / brain tumour red flags": ("female", "mother", "Fikile", "Karabo", "male"),
-    "Cerebral palsy functional history": ("female", "mother", "Ntombi", "Luyolo", "male"),
+    "Delayed walking with stiffness": ("female", "mother", "Ntombi", "Luyolo", "male"),
     "Urinary tract infection": ("female", "mother", "Refilwe", "Naledi", "female"),
     "Pyelonephritis": ("female", "mother", "Mpho", "Boitumelo", "female"),
     "Nephrotic syndrome": ("female", "mother", "Dudu", "Samkelo", "male"),
@@ -992,4 +992,5 @@ STYLE:
 - Highlight missed opportunities clearly.
 - {detail_instruction}
 """.strip()
+
 
