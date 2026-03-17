@@ -151,6 +151,14 @@ STUDY_NUMBER_OPTIONS = ["Please select study number"] + [
     f"1-{i:03d}" for i in range(1, STUDY_NUMBER_MAX + 1)
 ]
 
+GRADE_LABELS = {
+    1: "Early Development",
+    2: "Emerging Competence",
+    3: "Competent",
+    4: "Highly Competent",
+    5: "Exceptional Competence",
+}
+
 # =========================
 # Helpers
 # =========================
@@ -186,64 +194,6 @@ def format_duration(started_at: str | None, ended_at: str | None) -> str:
         return "Not recorded"
     mins = max(0, int(round((end_dt - start_dt).total_seconds() / 60)))
     return f"{mins} mins"
-
-
-GRADE_LABELS = {
-    1: "Early Development",
-    2: "Emerging Competence",
-    3: "Competent",
-    4: "Highly Competent",
-    5: "Exceptional Competence",
-}
-
-
-def grade_label_from_value(grade):
-    try:
-        grade_int = int(grade)
-    except Exception:
-        return None
-    return GRADE_LABELS.get(grade_int)
-
-
-def score_to_grade(score):
-    try:
-        score_value = float(score)
-    except Exception:
-        return None
-
-    if score_value < 20:
-        return 1
-    if score_value < 40:
-        return 2
-    if score_value < 60:
-        return 3
-    if score_value < 80:
-        return 4
-    return 5
-
-
-def ensure_grade_fields(data: dict):
-    if not isinstance(data, dict):
-        return data
-
-    grade = data.get("grade")
-    grade_label = data.get("grade_label")
-
-    if grade is None:
-        legacy_score = data.get("final_score_out_of_100")
-        derived_grade = score_to_grade(legacy_score)
-        if derived_grade is not None:
-            data["grade"] = derived_grade
-            data["grade_label"] = GRADE_LABELS.get(derived_grade)
-    else:
-        derived_label = grade_label_from_value(grade)
-        if derived_label and not grade_label:
-            data["grade_label"] = derived_label
-
-    if not data.get("diagnosis"):
-        data["diagnosis"] = data.get("true_case_diagnosis")
-
-    return data
 
 
 def is_yes(text: str) -> bool:
@@ -363,11 +313,95 @@ def make_json_safe(obj):
     return obj
 
 
+def score_to_grade(score):
+    try:
+        s = float(score)
+    except Exception:
+        return 1
+
+    if s < 20:
+        return 1
+    if s < 40:
+        return 2
+    if s < 60:
+        return 3
+    if s < 80:
+        return 4
+    return 5
+
+
+def coerce_grade(value):
+    try:
+        g = int(value)
+    except Exception:
+        return None
+    if g < 1:
+        return 1
+    if g > 5:
+        return 5
+    return g
+
+
+def normalize_assessment_payload(data: dict, case_data: dict | None = None) -> dict:
+    if not isinstance(data, dict):
+        data = {"overall_feedback": str(data)}
+
+    grade = coerce_grade(data.get("grade"))
+    if grade is None:
+        grade = score_to_grade(data.get("final_score_out_of_100", 0))
+
+    grade_label = str(data.get("grade_label", "")).strip() or GRADE_LABELS.get(grade, "Competent")
+
+    diagnosis = (
+        data.get("diagnosis")
+        or data.get("true_case_diagnosis")
+        or (case_data.get("expected_diagnosis") if case_data else None)
+    )
+
+    differentials = data.get("important_expected_differentials")
+    if not isinstance(differentials, list):
+        differentials = case_data.get("expected_differentials", []) if case_data else []
+
+    strengths = data.get("strengths", [])
+    if not isinstance(strengths, list):
+        strengths = [str(strengths)]
+
+    missed = data.get("missed_opportunities", [])
+    if not isinstance(missed, list):
+        missed = [str(missed)]
+
+    missed_history = data.get("key_missed_history_questions", [])
+    if not isinstance(missed_history, list):
+        missed_history = [str(missed_history)]
+
+    section_feedback = data.get("section_feedback", [])
+    if not isinstance(section_feedback, list):
+        section_feedback = []
+
+    return {
+        "grade": grade,
+        "grade_label": grade_label,
+        "diagnosis": diagnosis,
+        "important_expected_differentials": differentials,
+        "key_missed_history_questions": missed_history,
+        "strengths": strengths,
+        "missed_opportunities": missed,
+        "overall_feedback": data.get("overall_feedback", ""),
+        "case_summary": data.get("case_summary", ""),
+        "section_feedback": section_feedback,
+        "scores": data.get("scores", {}),
+    }
+
+
 def insufficient_interaction_feedback_json(case_data):
+    diagnosis = case_data.get("expected_diagnosis") if case_data else None
+    differentials = case_data.get("expected_differentials", []) if case_data else []
+
     return {
         "grade": 1,
-        "grade_label": "Early Development",
-        "diagnosis": case_data.get("expected_diagnosis") if case_data else None,
+        "grade_label": GRADE_LABELS[1],
+        "diagnosis": diagnosis,
+        "important_expected_differentials": differentials,
         "key_missed_history_questions": [],
         "strengths": [
             "No assessable strengths could be identified because there was insufficient student interaction."
@@ -379,6 +413,8 @@ def insufficient_interaction_feedback_json(case_data):
             "No valid assessment was possible because there was insufficient interaction to judge the "
             "student's history-taking or diagnostic reasoning."
         ),
+        "case_summary": "Insufficient interaction to generate a valid assessment.",
+        "section_feedback": [],
     }
 
 
@@ -388,16 +424,17 @@ def call_assessment(messages, detailed: bool = False):
     if not case_data:
         return {
             "grade": 1,
-            "grade_label": "Early Development",
+            "grade_label": GRADE_LABELS[1],
             "diagnosis": None,
+            "important_expected_differentials": [],
             "key_missed_history_questions": [],
             "strengths": [],
             "missed_opportunities": [
-                "The session metadata was incomplete, so the app could not reconstruct the case for grading."
+                "The session metadata was incomplete, so the app could not reconstruct the case for assessment."
             ],
-            "overall_feedback": (
-                "Assessment could not run because the case metadata was missing after import."
-            ),
+            "overall_feedback": "Assessment could not run because the case metadata was missing after import.",
+            "case_summary": "The transcript was imported, but the hidden case data could not be restored for assessment.",
+            "section_feedback": [],
         }
 
     if not has_meaningful_interaction(messages):
@@ -422,24 +459,31 @@ Transcript:
     text = response.output_text.strip()
 
     try:
-        return ensure_grade_fields(json.loads(text))
+        parsed = json.loads(text)
+        return normalize_assessment_payload(parsed, case_data)
     except Exception:
         match = re.search(r"\{.*\}", text, re.DOTALL)
         if match:
             try:
-                return ensure_grade_fields(json.loads(match.group(0)))
+                parsed = json.loads(match.group(0))
+                return normalize_assessment_payload(parsed, case_data)
             except Exception:
                 pass
 
-    return ensure_grade_fields({
-        "grade": 1,
-        "grade_label": "Early Development",
-        "diagnosis": case_data.get("expected_diagnosis"),
-        "key_missed_history_questions": [],
-        "strengths": [],
-        "missed_opportunities": [],
-        "overall_feedback": text,
-    })
+    return normalize_assessment_payload(
+        {
+            "grade": 1,
+            "grade_label": GRADE_LABELS[1],
+            "diagnosis": case_data.get("expected_diagnosis"),
+            "important_expected_differentials": case_data.get("expected_differentials", []),
+            "key_missed_history_questions": [],
+            "strengths": [],
+            "missed_opportunities": [],
+            "overall_feedback": text,
+            "case_summary": "Assessment could not be parsed cleanly, but feedback was generated.",
+        },
+        case_data,
+    )
 
 
 def import_voice_transcript(session_id: str | None):
@@ -629,67 +673,70 @@ def render_assessment_json(data: dict, detailed: bool = False):
         st.write(data)
         return
 
-    data = ensure_grade_fields(dict(data))
+    payload = normalize_assessment_payload(data, st.session_state.case_data)
 
-    grade = data.get("grade")
-    grade_label = data.get("grade_label")
+    grade = payload.get("grade")
+    grade_label = payload.get("grade_label", "")
     if grade is not None:
-        if grade_label:
-            st.markdown(f"**Grade:** {grade} – {grade_label}")
-        else:
-            st.markdown(f"**Grade:** {grade}")
+        st.markdown(f"**Grade:** {grade} – {grade_label}")
 
-    diagnosis = data.get("diagnosis") or data.get("true_case_diagnosis")
+    diagnosis = payload.get("diagnosis")
     if diagnosis:
-        st.markdown("**Most likely diagnosis**")
+        st.markdown("**Diagnosis**")
         st.write(diagnosis)
 
-    diffs = data.get("important_expected_differentials", [])
+    diffs = payload.get("important_expected_differentials", [])
     if diffs:
         st.markdown("**Important differential diagnoses for this case**")
         for item in diffs:
             st.write(f"- {item}")
 
-    missed_history = data.get("key_missed_history_questions", [])
+    missed_history = payload.get("key_missed_history_questions", [])
     if missed_history:
         st.markdown("**Key missed history questions**")
         for item in missed_history:
             st.write(f"- {item}")
 
-    case_summary = data.get("case_summary")
+    case_summary = payload.get("case_summary")
     if case_summary:
         st.markdown("**Case summary**")
         st.write(case_summary)
 
-    strengths = data.get("strengths", [])
+    strengths = payload.get("strengths", [])
     if strengths:
         st.markdown("**Strengths**")
         for item in strengths:
             st.write(f"- {item}")
 
-    missed = data.get("missed_opportunities", [])
+    missed = payload.get("missed_opportunities", [])
     if missed:
-        st.markdown("**Weaknesses / missed opportunities**")
+        st.markdown("**Missed opportunities**")
         for item in missed:
             st.write(f"- {item}")
 
     if detailed:
-        scores = data.get("scores", {})
+        section_feedback = payload.get("section_feedback", [])
+        if section_feedback:
+            st.markdown("**Section-by-section feedback**")
+            for item in section_feedback:
+                if isinstance(item, dict):
+                    label = item.get("label", "Section")
+                    comment = item.get("comment", "")
+                    st.write(f"**{label}:** {comment}")
+                else:
+                    st.write(f"- {item}")
+
+        scores = payload.get("scores", {})
         if scores:
-            st.markdown("**Domain-based comments**")
+            st.markdown("**Additional rubric comments**")
             for key, value in scores.items():
                 label = key.replace("_", " ").title()
-                section_score = value.get("score", "")
-                max_marks = value.get("max_marks", "")
-                reasoning = value.get("reasoning", "")
-                if section_score != "" and max_marks != "":
-                    st.write(f"**{label}:** {section_score}/{max_marks}")
-                else:
-                    st.write(f"**{label}:**")
+                reasoning = value.get("reasoning", "") if isinstance(value, dict) else ""
+                st.write(f"**{label}:**")
                 if reasoning:
                     st.write(reasoning)
 
-    overall = data.get("overall_feedback")
+    overall = payload.get("overall_feedback")
     if overall:
         st.markdown("**Overall feedback**")
         st.write(overall)
@@ -789,7 +836,7 @@ for key, value in defaults.items():
 # =========================
 # Query params recovery
 # =========================
-query_session_id = str(getQueryParam("session_id", "")).strip() if False else str(get_query_param("session_id", "")).strip()
+query_session_id = str(get_query_param("session_id", "")).strip()
 if query_session_id:
     st.session_state.current_session_id = query_session_id
 
