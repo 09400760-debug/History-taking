@@ -9,7 +9,12 @@ import requests
 import streamlit as st
 from openai import OpenAI
 
-from dynamic_rubric import choose_case, build_history_taking_system_prompt, build_assessor_system_prompt, build_assessor_schema
+from dynamic_rubric import (
+    choose_case,
+    build_history_taking_system_prompt,
+    build_assessor_system_prompt,
+    build_assessor_schema,
+)
 
 st.set_page_config(
     page_title="History-taking practice bot",
@@ -70,12 +75,18 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# =========================
+# Config
+# =========================
 api_key = st.secrets["OPENAI_API_KEY"]
 client = OpenAI(api_key=api_key)
 
 VOICE_SERVER_BASE_URL = "https://history-taking-voice.onrender.com"
 STREAMLIT_APP_URL = "https://history-takinggit-eexzk8appdm3vzfej2vtuzn.streamlit.app/"
 
+# =========================
+# Constants
+# =========================
 APP_TITLE = "🩺 History-taking practice bot"
 WELCOME_TEXT = (
     "This space gives you opportunities to practise paediatric history taking. "
@@ -94,7 +105,10 @@ VOICE_COMPLETION_HINTS = [
     "thank you i will now generate your feedback",
 ]
 
-VISIBLE_INTERACTION_MODES = ["Text only", "Realtime voice"]
+VISIBLE_INTERACTION_MODES = [
+    "Text only",
+    "Realtime voice",
+]
 
 VISIBLE_AGE_OPTIONS = [
     "Random",
@@ -115,13 +129,31 @@ VISIBLE_SYSTEM_OPTIONS = [
     "Respiratory",
 ]
 
-RANDOM_AGE_POOL = ["Neonate", "Infant", "1-5 years", "6-10 years", "11-19 years"]
-RANDOM_SYSTEM_POOL = ["Cardiovascular", "Gastrointestinal", "Musculoskeletal", "Neurological", "Renal", "Respiratory"]
+RANDOM_AGE_POOL = [
+    "Neonate",
+    "Infant",
+    "1-5 years",
+    "6-10 years",
+    "11-19 years",
+]
+
+RANDOM_SYSTEM_POOL = [
+    "Cardiovascular",
+    "Gastrointestinal",
+    "Musculoskeletal",
+    "Neurological",
+    "Renal",
+    "Respiratory",
+]
 
 STUDY_NUMBER_MAX = 126
-STUDY_NUMBER_OPTIONS = ["Please select study number"] + [f"1-{i:03d}" for i in range(1, STUDY_NUMBER_MAX + 1)]
+STUDY_NUMBER_OPTIONS = ["Please select study number"] + [
+    f"1-{i:03d}" for i in range(1, STUDY_NUMBER_MAX + 1)
+]
 
-
+# =========================
+# Helpers
+# =========================
 def normalize_text(text: str) -> str:
     return re.sub(r"\s+", " ", str(text).strip().lower())
 
@@ -201,11 +233,13 @@ def looks_like_finished_history(text: str) -> bool:
 def looks_like_voice_session_complete(messages) -> bool:
     if not messages:
         return False
+
     assistant_lines = [
         normalize_text(m.get("content", ""))
         for m in messages
         if m.get("role") == "assistant"
     ]
+
     for line in reversed(assistant_lines[-12:]):
         if any(hint in line for hint in VOICE_COMPLETION_HINTS):
             return True
@@ -252,7 +286,10 @@ def is_meaningful_student_text(text: str) -> bool:
 def has_meaningful_interaction(messages) -> bool:
     student_messages = get_student_messages(messages)
     meaningful_turns = [msg for msg in student_messages if is_meaningful_student_text(msg)]
-    total_student_words = sum(len([w for w in re.split(r"\s+", msg.strip()) if w]) for msg in student_messages)
+    total_student_words = sum(
+        len([w for w in re.split(r"\s+", msg.strip()) if w])
+        for msg in student_messages
+    )
     return len(meaningful_turns) >= 2 or total_student_words >= 12
 
 
@@ -360,8 +397,10 @@ def import_voice_transcript(session_id: str | None):
     for line in transcript_lines:
         speaker = str(line.get("speaker", "")).strip()
         text = str(line.get("text", "")).strip()
+
         if not text:
             continue
+
         if speaker == "Student":
             messages.append({"role": "user", "content": text})
         elif speaker == "Bot":
@@ -614,6 +653,9 @@ def run_text_state_machine(user_text: str):
     return "Conversation complete."
 
 
+# =========================
+# Session state init
+# =========================
 defaults = {
     "messages": [],
     "case_data": None,
@@ -647,7 +689,9 @@ for key, value in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = value
 
-
+# =========================
+# Query params recovery
+# =========================
 query_session_id = str(get_query_param("session_id", "")).strip()
 if query_session_id:
     st.session_state.current_session_id = query_session_id
@@ -655,6 +699,9 @@ if query_session_id:
 import_voice_flag = str(get_query_param("import_voice", "0")).strip()
 auto_feedback_flag = str(get_query_param("auto_feedback", "0")).strip()
 
+# =========================
+# Auto-import when returning from voice page
+# =========================
 if import_voice_flag == "1":
     imported_obj, import_error = import_voice_transcript(st.session_state.current_session_id)
 
@@ -680,10 +727,15 @@ if import_voice_flag == "1":
     clear_return_query_params()
     st.rerun()
 
-
+# =========================
+# Header
+# =========================
 st.title(APP_TITLE)
 st.info(WELCOME_TEXT)
 
+# =========================
+# Setup section
+# =========================
 if not st.session_state.case_data and not st.session_state.messages:
     st.markdown("### Session setup")
 
@@ -761,6 +813,9 @@ if not st.session_state.case_data and not st.session_state.messages:
             except Exception as e:
                 st.error(f"Could not generate case: {e}")
 
+# =========================
+# Voice mode
+# =========================
 if (
     st.session_state.case_data
     and st.session_state.active_mode == "Realtime voice"
@@ -774,6 +829,9 @@ if (
         "the app should return here and import the transcript automatically."
     )
 
+# =========================
+# Status
+# =========================
 status_value = st.session_state.last_voice_import_status
 if isinstance(status_value, dict):
     level = status_value.get("level", "info")
@@ -788,6 +846,9 @@ if isinstance(status_value, dict):
 elif isinstance(status_value, str) and status_value.strip():
     st.info(status_value.strip())
 
+# =========================
+# Conversation display
+# =========================
 show_live_transcript = (
     st.session_state.case_data
     and not st.session_state.presentation_done
@@ -800,6 +861,9 @@ if show_live_transcript:
         with st.chat_message(m["role"]):
             st.write(m["content"])
 
+# =========================
+# Text mode
+# =========================
 if (
     st.session_state.case_data
     and st.session_state.active_mode == "Text only"
@@ -827,6 +891,9 @@ elif st.session_state.mode == "post_presentation":
 elif st.session_state.messages and not st.session_state.case_data:
     st.info("Imported voice transcript loaded.")
 
+# =========================
+# Feedback
+# =========================
 if st.session_state.presentation_done:
     st.markdown("### Feedback")
 
@@ -859,6 +926,9 @@ if st.session_state.presentation_done:
             with st.expander("Detailed feedback", expanded=True):
                 render_assessment_json(st.session_state.detailed_assessment_generated, detailed=True)
 
+# =========================
+# Transcript tools
+# =========================
 if st.session_state.presentation_done and st.session_state.messages:
     st.markdown("### Transcript")
 
@@ -875,6 +945,9 @@ if st.session_state.presentation_done and st.session_state.messages:
         use_container_width=True,
     )
 
+# =========================
+# Reflection
+# =========================
 if st.session_state.presentation_done:
     st.markdown("### Reflection")
 
