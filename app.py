@@ -296,8 +296,8 @@ def has_meaningful_interaction(messages) -> bool:
 def insufficient_interaction_feedback_json(case_data):
     return {
         "case_summary": "Insufficient interaction to generate a valid assessment.",
-        "true_case_diagnosis": case_data.get("expected_diagnosis"),
-        "important_expected_differentials": case_data.get("expected_differentials", []),
+        "true_case_diagnosis": case_data.get("expected_diagnosis") if case_data else None,
+        "important_expected_differentials": case_data.get("expected_differentials", []) if case_data else [],
         "key_missed_history_questions": [],
         "scores": {},
         "raw_score_total": 0,
@@ -318,6 +318,25 @@ def insufficient_interaction_feedback_json(case_data):
 
 def call_assessment(messages, detailed: bool = False):
     case_data = st.session_state.case_data
+
+    if not case_data:
+        return {
+            "case_summary": "The transcript was imported, but the hidden case data could not be restored for assessment.",
+            "true_case_diagnosis": None,
+            "important_expected_differentials": [],
+            "key_missed_history_questions": [],
+            "scores": {},
+            "raw_score_total": 0,
+            "raw_total_possible": 0,
+            "final_score_out_of_100": 0,
+            "strengths": [],
+            "missed_opportunities": [
+                "The session metadata was incomplete, so the app could not reconstruct the case for scoring."
+            ],
+            "overall_feedback": (
+                "Assessment could not run because the case metadata was missing after import."
+            ),
+        }
 
     if not has_meaningful_interaction(messages):
         return insufficient_interaction_feedback_json(case_data)
@@ -431,6 +450,7 @@ def build_voice_url(session_id: str):
         "household_structure": st.session_state.case_data["household_structure"],
         "school_or_daycare": st.session_state.case_data["school_or_daycare"],
         "caregiver_occupation": st.session_state.case_data["caregiver_occupation"],
+        "case_data_json": json.dumps(st.session_state.case_data),
         "session_id": session_id,
         "study_number": st.session_state.study_number,
         "interaction_mode": st.session_state.active_mode,
@@ -499,6 +519,15 @@ def apply_imported_messages(imported_obj, session_id=None, status_message="Voice
         st.session_state.resolved_system = raw_payload.get("system")
     if raw_payload.get("study_number"):
         st.session_state.study_number = raw_payload.get("study_number")
+
+    case_data_json = raw_payload.get("case_data_json")
+    if case_data_json:
+        try:
+            st.session_state.case_data = json.loads(case_data_json)
+            st.session_state.caregiver_system_prompt = build_history_taking_system_prompt(st.session_state.case_data)
+            st.session_state.assessor_schema = build_assessor_schema(st.session_state.case_data)
+        except Exception:
+            st.session_state.case_data = None
 
     if session_id:
         st.session_state.current_session_id = session_id
@@ -688,6 +717,7 @@ defaults = {
 for key, value in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = value
+
 
 # =========================
 # Query params recovery
