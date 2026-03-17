@@ -906,7 +906,6 @@ ROLEPLAY RULES:
 def build_assessor_system_prompt(case_data: Dict[str, Any], detailed: bool = False) -> str:
     schema = build_assessor_schema(case_data)
     active_sections = schema["rubric"]["sections"]
-    raw_total_possible = schema["rubric"]["raw_total_possible"]
 
     section_lines = []
     for section in active_sections:
@@ -936,13 +935,19 @@ THIS STATION DOES NOT TEST:
 - disposition planning
 
 IMPORTANT:
-- Score ONLY the activated sections below.
-- Do NOT penalise the student for rubric sections that are not activated for this case.
 - Judge only the transcript evidence.
 - Do not reward management discussion unless it directly helps diagnostic reasoning.
-- After assigning raw section scores, calculate:
-  final_score_out_of_100 = (raw_score_total / raw_total_possible) * 100
-- Round the final score to 1 decimal place.
+
+GRADING SYSTEM (USE THIS ONLY — DO NOT USE PERCENTAGES):
+Assign a FINAL GRADE from 1 to 5 based on overall competence:
+
+1 = Early Development
+2 = Emerging Competence
+3 = Competent
+4 = Highly Competent
+5 = Exceptional Competence
+
+Use the rubric sections below to guide your judgement, but DO NOT calculate or output a score out of 100.
 
 TRUE CASE DIAGNOSIS:
 {case_data.get("expected_diagnosis")}
@@ -959,33 +964,32 @@ CASE:
 ACTIVATED RUBRIC SECTIONS:
 {joined_sections}
 
-RAW TOTAL POSSIBLE:
-{raw_total_possible}
-
 OUTPUT RULES:
 - Return valid JSON only.
 - Include these top-level keys exactly:
-  case_summary
-  true_case_diagnosis
-  important_expected_differentials
-  key_missed_history_questions
-  scores
-  raw_score_total
-  raw_total_possible
-  final_score_out_of_100
+
+  grade
+  grade_label
+  diagnosis
   strengths
   missed_opportunities
+  key_missed_history_questions
   overall_feedback
 
-FOR EACH SECTION IN scores:
-- include score
-- include max_marks
-- include reasoning
+WHERE:
+- grade = integer from 1 to 5
+- grade_label must exactly match:
+    1 = Early Development
+    2 = Emerging Competence
+    3 = Competent
+    4 = Highly Competent
+    5 = Exceptional Competence
 
 STYLE:
 - Be fair, specific, and educational.
-- Reward relevant prioritisation and not just checklist behaviour.
-- Explicitly comment on how well the student's history supports or misses the true diagnosis and differentials.
-- List key missed history questions that would have helped reach the diagnosis more confidently.
+- Reward clinical reasoning over checklist behaviour.
+- Focus on how well the history supports diagnosis.
+- Highlight missed opportunities clearly.
 - {detail_instruction}
 """.strip()
+
