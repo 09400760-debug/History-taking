@@ -1,3 +1,4 @@
+import copy
 import json
 import random
 import re
@@ -172,6 +173,88 @@ GRADE_LABELS = {
 
 CUSTOMIZED_GROUP = "customized"
 NON_CUSTOMIZED_GROUP = "non_customized"
+
+# =========================
+# Dynamic variation pools
+# =========================
+FEMALE_CHILD_NAMES = [
+    "Amahle", "Ayanda", "Lerato", "Naledi", "Aisha", "Zanele", "Nosipho",
+    "Karabo", "Thandeka", "Mpho", "Keitumetse", "Luyanda", "Asanda",
+]
+
+MALE_CHILD_NAMES = [
+    "Sipho", "Thabo", "Lethabo", "Themba", "Sibusiso", "Musa", "Ayaan",
+    "Kagiso", "Vuyo", "Lindo", "Khaya", "Neo", "Ethan",
+]
+
+FEMALE_CAREGIVER_NAMES = [
+    "Nomsa", "Ayanda", "Zandile", "Lerato", "Amina", "Nandi", "Busisiwe",
+    "Thandi", "Mpho", "Palesa", "Siphokazi", "Nokuthula", "Fatima",
+]
+
+MALE_CAREGIVER_NAMES = [
+    "Thabo", "Sizwe", "Mandla", "Yusuf", "Imran", "Bongani", "Kagiso",
+    "Themba", "Musa", "Sibusiso", "Vusi", "Naeem", "Lungelo",
+]
+
+CAREGIVER_OCCUPATIONS = [
+    "teacher", "shop assistant", "security guard", "driver", "administrator",
+    "nurse", "home-based caregiver", "cashier", "clerk", "general worker",
+    "hairdresser", "chef", "self-employed",
+]
+
+RESIDENCE_POOL = [
+    "Soweto", "Johannesburg South", "Randburg", "Alexandra", "Tembisa",
+    "Roodepoort", "Lenasia", "Midrand", "Orange Farm", "Diepsloot",
+]
+
+BIRTH_PLACE_POOL = [
+    "Chris Hani Baragwanath Hospital",
+    "Rahima Moosa Mother and Child Hospital",
+    "Charlotte Maxeke Johannesburg Academic Hospital",
+    "Helen Joseph Hospital",
+    "Tembisa Hospital",
+    "South Rand Hospital",
+]
+
+HOUSEHOLD_POOL = [
+    "lives with both parents and two siblings",
+    "lives with mother and grandmother",
+    "lives with mother, aunt, and cousins",
+    "lives with both parents and one older sibling",
+    "lives with father and grandmother",
+    "lives with mother and three siblings",
+]
+
+SCHOOL_DAYCARE_POOL = {
+    "Neonate": "not yet attending school or daycare",
+    "Infant": "stays at home with family",
+    "1-5 years": "attends crèche",
+    "6-10 years": "is in primary school",
+    "11-19 years": "is in secondary school",
+}
+
+SIBLING_POOL = [
+    "no siblings",
+    "one older sibling",
+    "one younger sibling",
+    "two siblings",
+    "three siblings",
+]
+
+OPENING_WORRY_TEMPLATES = [
+    "I'm worried because {complaint}.",
+    "I'm concerned because {complaint}.",
+    "I'm here because {complaint}.",
+    "I'm worried about {complaint}.",
+]
+
+GENERIC_PRESENTING_TEMPLATES = [
+    "my child has not been well",
+    "my child has been sick for a few days",
+    "my child has become unwell",
+    "something is not right with my child",
+]
 
 # =========================
 # Helpers
@@ -433,6 +516,286 @@ def get_study_group(study_number: str | None) -> str:
         return NON_CUSTOMIZED_GROUP
 
     return CUSTOMIZED_GROUP
+
+
+def extract_case_diagnosis(case_data: dict | None) -> str:
+    if not case_data:
+        return ""
+    diagnosis = (
+        case_data.get("expected_diagnosis")
+        or case_data.get("diagnosis")
+        or case_data.get("true_case_diagnosis")
+        or ""
+    )
+    return str(diagnosis).strip()
+
+
+def get_recent_customized_sessions(study_number: str, limit: int = 8) -> list[dict]:
+    if not study_number or get_study_group(study_number) != CUSTOMIZED_GROUP:
+        return []
+    sessions = get_student_sessions(study_number)
+    return sessions[:limit]
+
+
+def choose_novel_random_targets(study_number: str, selected_age: str, selected_system: str):
+    """
+    When a returning customized student chooses Random,
+    try to avoid recently seen age groups and systems.
+    """
+    sessions = get_recent_customized_sessions(study_number, limit=6)
+
+    recent_ages = [str(s.get("age_group", "")).strip() for s in sessions if s.get("age_group")]
+    recent_systems = [str(s.get("system", "")).strip() for s in sessions if s.get("system")]
+
+    resolved_age = selected_age
+    resolved_system = selected_system
+
+    if selected_age == "Random":
+        age_options = [a for a in RANDOM_AGE_POOL if a not in recent_ages[:3]]
+        if not age_options:
+            age_options = RANDOM_AGE_POOL[:]
+        resolved_age = random.choice(age_options)
+
+    if selected_system == "Random":
+        system_options = [s for s in RANDOM_SYSTEM_POOL if s not in recent_systems[:3]]
+        if not system_options:
+            system_options = RANDOM_SYSTEM_POOL[:]
+        resolved_system = random.choice(system_options)
+
+    return resolved_age, resolved_system
+
+
+def choose_case_with_history(requested_system: str, study_number: str | None = None, avoid_recent_repeat: bool = False) -> dict:
+    """
+    Draw a case from the current pool, but for returning customized
+    students in random mode, try to avoid recently seen diagnoses.
+    """
+    if not avoid_recent_repeat or not study_number or get_study_group(study_number) != CUSTOMIZED_GROUP:
+        return choose_case(requested_system=requested_system)
+
+    sessions = get_recent_customized_sessions(study_number, limit=8)
+    recent_diagnoses = {
+        str(s.get("diagnosis", "")).strip().lower()
+        for s in sessions
+        if s.get("diagnosis")
+    }
+
+    best_case = None
+    for _ in range(24):
+        candidate = choose_case(requested_system=requested_system)
+        diagnosis = extract_case_diagnosis(candidate).lower()
+        if diagnosis and diagnosis not in recent_diagnoses:
+            return candidate
+        best_case = candidate
+
+    return best_case or choose_case(requested_system=requested_system)
+
+
+def generate_age_string(age_group: str) -> str:
+    if age_group == "Neonate":
+        days = random.randint(2, 27)
+        return f"{days} days"
+    if age_group == "Infant":
+        months = random.randint(2, 11)
+        return f"{months} months"
+    if age_group == "1-5 years":
+        years = random.randint(1, 5)
+        return f"{years} years"
+    if age_group == "6-10 years":
+        years = random.randint(6, 10)
+        return f"{years} years"
+    if age_group == "11-19 years":
+        years = random.randint(11, 17)
+        return f"{years} years"
+    return random.choice(["8 months", "2 years", "7 years", "14 years"])
+
+
+def build_presenting_complaint_variant(diagnosis: str, age_group: str, original: str) -> str:
+    d = normalize_text(diagnosis)
+    original = str(original or "").strip()
+
+    variants = {
+        "rickets": [
+            "my child has started walking strangely and the legs look bent",
+            "my child is not standing properly and the legs seem bowed",
+            "my child seems weak and is not walking the way I expected",
+        ],
+        "asthma": [
+            "my child has been coughing and breathing with difficulty",
+            "my child is wheezing and struggling to breathe",
+            "my child gets tight-chested and short of breath",
+        ],
+        "pneumonia": [
+            "my child has fever, cough, and fast breathing",
+            "my child is coughing badly and breathing quickly",
+            "my child has been unwell with fever and difficulty breathing",
+        ],
+        "bronchiolitis": [
+            "the baby has cough, noisy breathing, and is feeding poorly",
+            "the baby has a chesty cough and is breathing fast",
+            "the baby seems blocked up, coughs a lot, and is not feeding well",
+        ],
+        "gastroenteritis": [
+            "my child has diarrhoea and vomiting",
+            "my child has been vomiting and has loose stools",
+            "my child has a runny tummy and keeps vomiting",
+        ],
+        "dehydration": [
+            "my child has been vomiting and now seems very weak",
+            "my child is not drinking well and looks dry",
+            "my child has become floppy after diarrhoea and vomiting",
+        ],
+        "uti": [
+            "my child has fever and cries when passing urine",
+            "my child has had fever and seems uncomfortable when urinating",
+            "my child has fever and urine problems",
+        ],
+        "urinary tract infection": [
+            "my child has fever and cries when passing urine",
+            "my child has had fever and seems uncomfortable when urinating",
+            "my child has fever and urine problems",
+        ],
+        "pyelonephritis": [
+            "my child has fever and looks very unwell with urine problems",
+            "my child has high fever and seems uncomfortable when passing urine",
+            "my child has fever, vomiting, and I think there is a urine problem",
+        ],
+        "febrile seizure": [
+            "my child had a fit with a fever",
+            "my child became stiff and jerky while having fever",
+            "my child had a seizure when the temperature was high",
+        ],
+        "epilepsy": [
+            "my child has had repeated fits",
+            "my child keeps having seizure-like episodes",
+            "my child has been having recurrent convulsions",
+        ],
+        "meningitis": [
+            "my child has fever and is very sleepy and irritable",
+            "my child is feverish and not responding normally",
+            "my child has fever and is behaving strangely",
+        ],
+        "appendicitis": [
+            "my child has stomach pain and vomiting",
+            "my child has bad pain on the right side of the tummy",
+            "my child has tummy pain that is getting worse",
+        ],
+        "constipation": [
+            "my child struggles to pass stool and complains of tummy pain",
+            "my child has not been opening the bowels properly",
+            "my child has hard stools and abdominal pain",
+        ],
+        "nephrotic": [
+            "my child has become swollen around the eyes and body",
+            "my child is puffy, especially around the eyes",
+            "my child has swelling that worries me",
+        ],
+        "nephritic": [
+            "my child has swelling and the urine looks dark",
+            "my child is swollen and passing tea-coloured urine",
+            "my child has facial swelling and dark urine",
+        ],
+        "malnutrition": [
+            "my child is losing weight and seems weak",
+            "my child is not growing well and looks thin",
+            "my child has become wasted and has poor appetite",
+        ],
+        "croup": [
+            "my child has a barking cough and noisy breathing",
+            "my child woke up with a harsh cough and noisy breathing",
+            "my child has a strange barking cough",
+        ],
+        "foreign body aspiration": [
+            "my child suddenly started coughing and breathing badly",
+            "my child choked and since then the breathing has not been normal",
+            "my child suddenly became short of breath while eating",
+        ],
+        "congenital heart disease": [
+            "my child gets tired easily and breathes fast",
+            "my child is not feeding well and breathes quickly",
+            "my child becomes sweaty and breathless easily",
+        ],
+    }
+
+    for key, options in variants.items():
+        if key in d:
+            return random.choice(options)
+
+    if original:
+        generic_from_original = [
+            original,
+            f"my child has been having {original.lower()}",
+            f"there has been a problem with {original.lower()}",
+        ]
+        return random.choice(generic_from_original)
+
+    return random.choice(GENERIC_PRESENTING_TEMPLATES)
+
+
+def build_opening_line(caregiver_name: str, child_name: str, caregiver_role: str, presenting_complaint: str) -> str:
+    complaint = str(presenting_complaint or "").strip()
+    if complaint:
+        template = random.choice(OPENING_WORRY_TEMPLATES)
+        return f"Hello doctor, I'm {caregiver_name}, {child_name}'s {caregiver_role}. {template.format(complaint=complaint)}"
+    return f"Hello doctor, I'm {caregiver_name}, {child_name}'s {caregiver_role}."
+
+
+def apply_dynamic_case_variation(case_data: dict, resolved_age: str) -> dict:
+    """
+    Keeps the underlying diagnosis/case structure the same,
+    but varies the presentation details so the same diagnosis
+    does not appear as the exact same child/scenario each time.
+    """
+    varied = copy.deepcopy(case_data)
+
+    diagnosis = extract_case_diagnosis(varied)
+    child_sex = random.choice(["male", "female"])
+
+    caregiver_role = (
+        random.choice(["mother", "father", "grandmother"])
+        if resolved_age in {"Neonate", "Infant"}
+        else random.choice(["mother", "father"])
+    )
+
+    if child_sex == "female":
+        child_name = random.choice(FEMALE_CHILD_NAMES)
+    else:
+        child_name = random.choice(MALE_CHILD_NAMES)
+
+    if caregiver_role in {"mother", "grandmother", "aunt"}:
+        caregiver_name = random.choice(FEMALE_CAREGIVER_NAMES)
+        caregiver_gender = "female"
+    else:
+        caregiver_name = random.choice(MALE_CAREGIVER_NAMES)
+        caregiver_gender = "male"
+
+    varied["child_sex"] = child_sex
+    varied["child_name"] = child_name
+    varied["child_age"] = generate_age_string(resolved_age)
+    varied["caregiver_role"] = caregiver_role
+    varied["caregiver_name"] = caregiver_name
+    varied["caregiver_gender"] = caregiver_gender
+    varied["caregiver_occupation"] = random.choice(CAREGIVER_OCCUPATIONS)
+    varied["siblings"] = random.choice(SIBLING_POOL)
+    varied["residence"] = random.choice(RESIDENCE_POOL)
+    varied["birth_place"] = random.choice(BIRTH_PLACE_POOL)
+    varied["household_structure"] = random.choice(HOUSEHOLD_POOL)
+    varied["school_or_daycare"] = SCHOOL_DAYCARE_POOL.get(resolved_age, "stays at home with family")
+
+    varied_presenting = build_presenting_complaint_variant(
+        diagnosis=diagnosis,
+        age_group=resolved_age,
+        original=varied.get("presenting_complaint", ""),
+    )
+    varied["presenting_complaint"] = varied_presenting
+    varied["opening_line"] = build_opening_line(
+        caregiver_name=varied["caregiver_name"],
+        child_name=varied["child_name"],
+        caregiver_role=varied["caregiver_role"],
+        presenting_complaint=varied_presenting,
+    )
+
+    return varied
 
 
 def build_non_customized_caregiver_prompt(case_data: dict, optional_instruction: str = "") -> str:
@@ -763,12 +1126,13 @@ def render_student_progress():
         for session in sessions[:10]:
             created_at = session.get("created_at", "")
             system = session.get("system", "")
+            age_group = session.get("age_group", "")
             grade = session.get("grade", "")
             grade_label = session.get("grade_label", "")
             diagnosis = session.get("diagnosis", "")
 
             st.markdown(
-                f"**{created_at}** — {system} — Grade {grade} {f'({grade_label})' if grade_label else ''}"
+                f"**{created_at}** — {system} — {age_group} — Grade {grade} {f'({grade_label})' if grade_label else ''}"
             )
             if diagnosis:
                 st.write(f"Diagnosis: {diagnosis}")
@@ -1361,12 +1725,29 @@ if not st.session_state.case_data and not st.session_state.messages:
             try:
                 study_group = get_study_group(selected_study_number)
 
-                if study_group == CUSTOMIZED_GROUP:
-                    resolved_age, resolved_system = resolve_random_selection(selected_age, selected_system)
-                else:
-                    resolved_age, resolved_system = resolve_random_selection("Random", "Random")
+                use_history_aware_random = (
+                    study_group == CUSTOMIZED_GROUP
+                    and (selected_age == "Random" or selected_system == "Random")
+                )
 
-                case_data = choose_case(requested_system=resolved_system)
+                if use_history_aware_random:
+                    resolved_age, resolved_system = choose_novel_random_targets(
+                        selected_study_number,
+                        selected_age,
+                        selected_system,
+                    )
+                else:
+                    if study_group == CUSTOMIZED_GROUP:
+                        resolved_age, resolved_system = resolve_random_selection(selected_age, selected_system)
+                    else:
+                        resolved_age, resolved_system = resolve_random_selection("Random", "Random")
+
+                base_case_data = choose_case_with_history(
+                    requested_system=resolved_system,
+                    study_number=selected_study_number,
+                    avoid_recent_repeat=use_history_aware_random,
+                )
+                case_data = apply_dynamic_case_variation(base_case_data, resolved_age)
 
                 if study_group == CUSTOMIZED_GROUP:
                     caregiver_system_prompt = build_history_taking_system_prompt(case_data)
