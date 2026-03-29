@@ -15,6 +15,12 @@ from dynamic_rubric import (
     build_assessor_system_prompt,
     build_assessor_schema,
 )
+from progress_db import (
+    init_db,
+    save_session_result,
+    get_student_sessions,
+    get_student_summary,
+)
 
 st.set_page_config(
     page_title="History-taking practice bot",
@@ -80,6 +86,7 @@ st.markdown(
 # =========================
 api_key = st.secrets["OPENAI_API_KEY"]
 client = OpenAI(api_key=api_key)
+init_db()
 
 VOICE_SERVER_BASE_URL = "https://history-taking-voice.onrender.com"
 STREAMLIT_APP_URL = "https://history-takinggit-eexzk8appdm3vzfej2vtuzn.streamlit.app/"
@@ -201,6 +208,13 @@ def format_duration(started_at: str | None, ended_at: str | None) -> str:
         return "Not recorded"
     mins = max(0, int(round((end_dt - start_dt).total_seconds() / 60)))
     return f"{mins} mins"
+
+
+def safe_int(value):
+    try:
+        return int(value)
+    except Exception:
+        return None
 
 
 def is_yes(text: str) -> bool:
@@ -666,6 +680,103 @@ Transcript:
     )
 
 
+def save_customized_session_to_db():
+    if st.session_state.study_group != CUSTOMIZED_GROUP:
+        return
+
+    if st.session_state.db_save_completed:
+        return
+
+    assessment = st.session_state.brief_assessment_generated
+    if not assessment or not isinstance(assessment, dict):
+        return
+
+    study_number = st.session_state.study_number
+    session_id = st.session_state.current_session_id
+
+    if not study_number or not session_id:
+        return
+
+    duration_minutes = None
+    start_dt = parse_iso(st.session_state.case_started_at)
+    end_dt = parse_iso(st.session_state.case_ended_at)
+    if start_dt and end_dt:
+        duration_minutes = max(0, int(round((end_dt - start_dt).total_seconds() / 60)))
+
+    save_session_result(
+        study_number=study_number,
+        session_id=session_id,
+        created_at=st.session_state.case_ended_at or now_iso(),
+        interaction_mode=st.session_state.active_mode,
+        age_group=st.session_state.resolved_age,
+        system=st.session_state.resolved_system,
+        grade=safe_int(assessment.get("grade")),
+        grade_label=assessment.get("grade_label"),
+        diagnosis=assessment.get("diagnosis"),
+        strengths=assessment.get("strengths", []),
+        missed_opportunities=assessment.get("missed_opportunities", []),
+        key_missed_history_questions=assessment.get("key_missed_history_questions", []),
+        overall_feedback=assessment.get("overall_feedback"),
+        case_summary=assessment.get("case_summary"),
+        transcript_text=transcript_from_messages(st.session_state.messages),
+        duration_minutes=duration_minutes,
+    )
+
+    st.session_state.db_save_completed = True
+
+
+def render_student_progress():
+    if st.session_state.study_group != CUSTOMIZED_GROUP:
+        return
+    if not st.session_state.study_number:
+        return
+
+    sessions = get_student_sessions(st.session_state.study_number)
+    summary = get_student_summary(st.session_state.study_number)
+
+    st.markdown("### Your progress so far")
+
+    if not sessions:
+        st.info("No previous customized sessions recorded yet.")
+        return
+
+    total_cases = summary.get("total_cases", 0)
+    average_grade = summary.get("average_grade")
+
+    st.markdown(f"**Total customized cases completed:** {total_cases}")
+    st.markdown(f"**Average grade:** {average_grade if average_grade is not None else 'Not available'}")
+
+    recent_strengths = summary.get("recent_strengths", [])
+    recent_missed = summary.get("recent_missed_opportunities", [])
+
+    if recent_strengths:
+        st.markdown("**Recent strengths noticed**")
+        for item in recent_strengths:
+            st.write(f"- {item}")
+
+    if recent_missed:
+        st.markdown("**Recent recurring improvement areas**")
+        for item in recent_missed:
+            st.write(f"- {item}")
+
+    with st.expander("Previous sessions", expanded=False):
+        for session in sessions[:10]:
+            created_at = session.get("created_at", "")
+            system = session.get("system", "")
+            grade = session.get("grade", "")
+            grade_label = session.get("grade_label", "")
+            diagnosis = session.get("diagnosis", "")
+
+            st.markdown(
+                f"**{created_at}** — {system} — Grade {grade} {f'({grade_label})' if grade_label else ''}"
+            )
+            if diagnosis:
+                st.write(f"Diagnosis: {diagnosis}")
+            if session.get("overall_feedback"):
+                st.write(session["overall_feedback"])
+            st.markdown("---")
+
+
 def import_voice_transcript(session_id: str | None):
     params = {}
     if session_id:
@@ -785,6 +896,8 @@ def reset_case_state():
     st.session_state.caregiver_system_prompt = ""
     st.session_state.assessor_schema = {}
     st.session_state.study_group = CUSTOMIZED_GROUP
+    st.session_state.db_save_completed = False
+    st.session_state.prior_sessions_loaded = False
 
 
 def apply_imported_messages(imported_obj, session_id=None, status_message="Voice transcript imported automatically."):
@@ -794,6 +907,7 @@ def apply_imported_messages(imported_obj, session_id=None, status_message="Voice
     st.session_state.brief_assessment_generated = None
     st.session_state.detailed_assessment_generated = None
     st.session_state.generic_feedback = None
+    st.session_state.db_save_completed = False
 
     raw_payload = imported_obj.get("raw_payload") or {}
     st.session_state.case_started_at = raw_payload.get("started_at") or st.session_state.case_started_at
@@ -1110,6 +1224,8 @@ defaults = {
     "caregiver_system_prompt": "",
     "assessor_schema": {},
     "non_custom_instruction": "",
+    "db_save_completed": False,
+    "prior_sessions_loaded": False,
 }
 
 for key, value in defaults.items():
@@ -1143,7 +1259,11 @@ if import_voice_flag == "1":
 
         if auto_feedback_flag == "1" and st.session_state.study_group == CUSTOMIZED_GROUP:
             with st.spinner("Generating brief feedback..."):
-                st.session_state.brief_assessment_generated = call_assessment(imported_obj["messages"], detailed=False)
+                st.session_state.brief_assessment_generated = call_assessment(
+                    imported_obj["messages"],
+                    detailed=False,
+                )
+                save_customized_session_to_db()
                 st.session_state.presentation_done = True
                 st.session_state.mode = "post_presentation"
                 st.session_state.text_phase = "post_presentation"
@@ -1226,6 +1346,11 @@ if not st.session_state.case_data and not st.session_state.messages:
         )
 
         st.caption("You can ask the chatbot to switch systems or caregiver, should you wish.")
+
+    if selected_study_number != "Please select study number" and study_group_preview == CUSTOMIZED_GROUP:
+        st.session_state.study_number = selected_study_number
+        st.session_state.study_group = study_group_preview
+        render_student_progress()
 
     if st.button("Start new case", use_container_width=True):
         if selected_study_number == "Please select study number":
@@ -1319,6 +1444,12 @@ if st.session_state.case_data:
     )
 
 # =========================
+# Progress display during active customized sessions
+# =========================
+if st.session_state.study_group == CUSTOMIZED_GROUP and st.session_state.study_number and st.session_state.case_data:
+    render_student_progress()
+
+# =========================
 # Conversation display
 # =========================
 show_live_transcript = (
@@ -1367,6 +1498,7 @@ if (
                     st.session_state.messages,
                     detailed=False,
                 )
+                save_customized_session_to_db()
 
         st.rerun()
 
@@ -1390,6 +1522,7 @@ if st.session_state.presentation_done and st.session_state.study_group == CUSTOM
                     st.session_state.messages,
                     detailed=False,
                 )
+                save_customized_session_to_db()
                 if not st.session_state.case_ended_at:
                     st.session_state.case_ended_at = now_iso()
                 st.rerun()
