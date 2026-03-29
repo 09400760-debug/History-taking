@@ -785,7 +785,6 @@ def reset_case_state():
     st.session_state.caregiver_system_prompt = ""
     st.session_state.assessor_schema = {}
     st.session_state.study_group = CUSTOMIZED_GROUP
-    st.session_state.non_custom_instruction = ""
 
 
 def apply_imported_messages(imported_obj, session_id=None, status_message="Voice transcript imported automatically."):
@@ -1222,7 +1221,6 @@ if not st.session_state.case_data and not st.session_state.messages:
 
         non_custom_instruction = st.text_input(
             "Optional instruction",
-            value=st.session_state.non_custom_instruction,
             key="non_custom_instruction",
             help="You can ask the chatbot to switch systems or caregiver, should you wish.",
         )
@@ -1269,7 +1267,6 @@ if not st.session_state.case_data and not st.session_state.messages:
                 st.session_state.resolved_system = resolved_system
                 st.session_state.transcript_download_name = f"transcript_{selected_study_number}_{session_id}.txt"
                 st.session_state.active_mode = selected_mode
-                st.session_state.non_custom_instruction = non_custom_instruction
 
                 if selected_mode == "Text only":
                     st.session_state.messages = [
@@ -1337,7 +1334,7 @@ if show_live_transcript:
             st.write(m["content"])
 
 # =========================
-# Non-customized text session end button
+# Non-customized text hint
 # =========================
 if (
     st.session_state.case_data
