@@ -1,3 +1,4 @@
+import os
 import copy
 import json
 import random
@@ -1983,22 +1984,28 @@ if st.session_state.presentation_done:
                 mime="text/plain",
                 use_container_width=True,
             )
-            import os
-import streamlit as st
+            # ===============================
+# ADMIN: DOWNLOAD DATABASE
+# ===============================
 
-DB_PATH = "student_progress.db"
+try:
+    DB_PATH = "student_progress.db"
 
-st.subheader("Admin: Download Database")
+    import os
 
-if os.path.exists(DB_PATH):
-    with open(DB_PATH, "rb") as f:
-        st.download_button(
-            label="Download student database",
-            data=f,
-            file_name="student_progress.db",
-            mime="application/octet-stream"
-        )
-else:
-    st.write("Database file not found")
+    st.markdown("---")
+    st.subheader("Admin: Download Database")
 
+    if os.path.exists(DB_PATH):
+        with open(DB_PATH, "rb") as f:
+            st.download_button(
+                label="Download student database",
+                data=f,
+                file_name="student_progress.db",
+                mime="application/octet-stream"
+            )
+    else:
+        st.warning("Database file not found in this environment.")
 
+except Exception as e:
+    st.error(f"Download section error: {e}")
