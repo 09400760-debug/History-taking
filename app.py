@@ -101,6 +101,8 @@ TEXT_DIFFERENTIALS_QUESTION = "What are your main differential diagnoses?"
 TEXT_END_CONFIRM = "Are you finished and ready for feedback?"
 TEXT_FINAL_LINE = "Thank you. I will now generate your feedback."
 
+NON_CUSTOMIZED_FEEDBACK_QUESTION = "Would you like any feedback?"
+
 VOICE_COMPLETION_HINTS = [
     "thank you i will now generate your feedback",
 ]
@@ -146,7 +148,6 @@ RANDOM_SYSTEM_POOL = [
     "Respiratory",
 ]
 
-# You can adjust these two constants if needed.
 STUDY_NUMBERS_PER_ARM = 126
 STUDY_NUMBER_OPTIONS = ["Please select study number"] + [
     f"1-{i:03d}" for i in range(1, STUDY_NUMBERS_PER_ARM + 1)
@@ -420,8 +421,8 @@ def get_study_group(study_number: str | None) -> str:
     return CUSTOMIZED_GROUP
 
 
-def build_non_customized_caregiver_prompt(case_data: dict) -> str:
-    return f"""
+def build_non_customized_caregiver_prompt(case_data: dict, optional_instruction: str = "") -> str:
+    prompt = f"""
 You are role-playing a realistic caregiver in a paediatric history-taking practice conversation.
 
 This is a standard non-customized practice chatbot.
@@ -449,7 +450,7 @@ RULES:
 - Do not repeat the full opening line later unless directly asked who you are.
 - Do not ask the student any questions.
 - Do not guide the student.
-- Do not provide feedback.
+- Do not provide feedback unless explicitly asked to give feedback at the end.
 - Do not mention rubrics, scoring, grades, diagnosis, or differentials unless the student directly asks what you were told.
 - Answer naturally, briefly, and realistically.
 - Do not volunteer the whole history at once.
@@ -458,8 +459,16 @@ RULES:
 - Keep answers internally consistent with the hidden case summary.
 - If the student's wording is vague or unclear, ask briefly for clarification.
 - Do not move into preceptor mode.
-- There is no structured end-stage. Remain the caregiver throughout.
+- If the student says they are done, ask:
+  "{NON_CUSTOMIZED_FEEDBACK_QUESTION}"
+- If they say yes, give brief general feedback on the interaction like a normal helpful chatbot.
+- If they say no, end politely.
 """.strip()
+
+    if optional_instruction.strip():
+        prompt += f"\n\nAdditional student instruction:\n{optional_instruction.strip()}"
+
+    return prompt
 
 
 def caregiver_reply_from_messages(messages, caregiver_system_prompt):
@@ -467,6 +476,34 @@ def caregiver_reply_from_messages(messages, caregiver_system_prompt):
         model="gpt-4.1-mini",
         instructions=caregiver_system_prompt,
         input=messages,
+    )
+    return response.output_text.strip()
+
+
+def generate_generic_feedback(messages):
+    transcript = transcript_from_messages(messages)
+
+    prompt = f"""
+You are a helpful clinical tutor.
+
+Give brief general feedback on this paediatric history-taking interaction.
+
+Focus on:
+- two or three strengths
+- two or three areas for improvement
+
+Do NOT use any rubric.
+Do NOT score.
+Do NOT grade.
+Keep it concise, practical, and supportive.
+
+Transcript:
+{transcript}
+"""
+
+    response = client.responses.create(
+        model="gpt-4.1-mini",
+        input=prompt,
     )
     return response.output_text.strip()
 
@@ -732,6 +769,7 @@ def reset_case_state():
     st.session_state.presentation_done = False
     st.session_state.brief_assessment_generated = None
     st.session_state.detailed_assessment_generated = None
+    st.session_state.generic_feedback = None
     st.session_state.mode = "caregiver"
     st.session_state.last_voice_import_status = None
     st.session_state.text_phase = "caregiver"
@@ -747,6 +785,7 @@ def reset_case_state():
     st.session_state.caregiver_system_prompt = ""
     st.session_state.assessor_schema = {}
     st.session_state.study_group = CUSTOMIZED_GROUP
+    st.session_state.non_custom_instruction = ""
 
 
 def apply_imported_messages(imported_obj, session_id=None, status_message="Voice transcript imported automatically."):
@@ -755,6 +794,7 @@ def apply_imported_messages(imported_obj, session_id=None, status_message="Voice
     st.session_state.raw_voice_payload = imported_obj.get("raw_payload")
     st.session_state.brief_assessment_generated = None
     st.session_state.detailed_assessment_generated = None
+    st.session_state.generic_feedback = None
 
     raw_payload = imported_obj.get("raw_payload") or {}
     st.session_state.case_started_at = raw_payload.get("started_at") or st.session_state.case_started_at
@@ -781,7 +821,11 @@ def apply_imported_messages(imported_obj, session_id=None, status_message="Voice
                 st.session_state.caregiver_system_prompt = build_history_taking_system_prompt(st.session_state.case_data)
                 st.session_state.assessor_schema = build_assessor_schema(st.session_state.case_data)
             else:
-                st.session_state.caregiver_system_prompt = build_non_customized_caregiver_prompt(st.session_state.case_data)
+                optional_instruction = st.session_state.get("non_custom_instruction", "")
+                st.session_state.caregiver_system_prompt = build_non_customized_caregiver_prompt(
+                    st.session_state.case_data,
+                    optional_instruction=optional_instruction,
+                )
                 st.session_state.assessor_schema = {}
         except Exception:
             st.session_state.case_data = None
@@ -907,9 +951,35 @@ def render_assessment_json(data: dict, detailed: bool = False):
 
 def run_text_state_machine(user_text: str):
     if st.session_state.study_group == NON_CUSTOMIZED_GROUP:
-        if looks_like_greeting_only(user_text):
-            return "Hello, doctor."
-        return caregiver_reply_from_messages(st.session_state.messages, st.session_state.caregiver_system_prompt)
+        phase = st.session_state.text_phase
+
+        if phase == "caregiver":
+            if looks_like_finished_history(user_text):
+                st.session_state.text_phase = "await_non_custom_feedback_choice"
+                return NON_CUSTOMIZED_FEEDBACK_QUESTION
+
+            if looks_like_greeting_only(user_text):
+                return "Hello, doctor."
+
+            return caregiver_reply_from_messages(st.session_state.messages, st.session_state.caregiver_system_prompt)
+
+        if phase == "await_non_custom_feedback_choice":
+            if is_yes(user_text):
+                st.session_state.text_phase = "post_presentation"
+                st.session_state.presentation_done = True
+                st.session_state.mode = "post_presentation"
+                st.session_state.case_ended_at = now_iso()
+                st.session_state.generic_feedback = generate_generic_feedback(st.session_state.messages)
+                return "Here is some general feedback on the interaction."
+            if is_no(user_text):
+                st.session_state.text_phase = "post_presentation"
+                st.session_state.presentation_done = True
+                st.session_state.mode = "post_presentation"
+                st.session_state.case_ended_at = now_iso()
+                return "Okay. Session complete."
+            return "Please answer yes or no."
+
+        return "Conversation complete."
 
     phase = st.session_state.text_phase
 
@@ -1018,6 +1088,7 @@ defaults = {
     "presentation_done": False,
     "brief_assessment_generated": None,
     "detailed_assessment_generated": None,
+    "generic_feedback": None,
     "mode": "caregiver",
     "text_phase": "caregiver",
     "selected_mode": "Text only",
@@ -1039,6 +1110,7 @@ defaults = {
     "transcript_download_name": None,
     "caregiver_system_prompt": "",
     "assessor_schema": {},
+    "non_custom_instruction": "",
 }
 
 for key, value in defaults.items():
@@ -1101,8 +1173,9 @@ if not st.session_state.case_data and not st.session_state.messages:
         key="selected_study_number",
     )
 
+    study_group_preview = get_study_group(selected_study_number)
+
     if selected_study_number != "Please select study number":
-        study_group_preview = get_study_group(selected_study_number)
         st.markdown(f"**Study number selected:** {selected_study_number}")
         st.markdown(
             f"**Study arm:** {'Customized bot' if study_group_preview == CUSTOMIZED_GROUP else 'Non-customized bot'}"
@@ -1123,21 +1196,38 @@ if not st.session_state.case_data and not st.session_state.messages:
         label_visibility="collapsed",
     )
 
-    st.markdown("**Choose age group**")
-    selected_age = st.radio(
-        "Choose age group",
-        VISIBLE_AGE_OPTIONS,
-        key="selected_age",
-        label_visibility="collapsed",
-    )
+    if study_group_preview == CUSTOMIZED_GROUP:
+        st.markdown("**Choose age group**")
+        selected_age = st.radio(
+            "Choose age group",
+            VISIBLE_AGE_OPTIONS,
+            key="selected_age",
+            label_visibility="collapsed",
+        )
 
-    st.markdown("**Choose system**")
-    selected_system = st.radio(
-        "Choose system",
-        VISIBLE_SYSTEM_OPTIONS,
-        key="selected_system",
-        label_visibility="collapsed",
-    )
+        st.markdown("**Choose system**")
+        selected_system = st.radio(
+            "Choose system",
+            VISIBLE_SYSTEM_OPTIONS,
+            key="selected_system",
+            label_visibility="collapsed",
+        )
+
+        non_custom_instruction = ""
+    else:
+        selected_age = "Random"
+        selected_system = "Random"
+
+        st.info("A random case will be generated for this study arm.")
+
+        non_custom_instruction = st.text_input(
+            "Optional instruction",
+            value=st.session_state.non_custom_instruction,
+            key="non_custom_instruction",
+            help="You can ask the chatbot to switch systems or caregiver, should you wish.",
+        )
+
+        st.caption("You can ask the chatbot to switch systems or caregiver, should you wish.")
 
     if st.button("Start new case", use_container_width=True):
         if selected_study_number == "Please select study number":
@@ -1146,15 +1236,23 @@ if not st.session_state.case_data and not st.session_state.messages:
             st.warning("Please confirm the study number before starting.")
         else:
             try:
-                resolved_age, resolved_system = resolve_random_selection(selected_age, selected_system)
-                case_data = choose_case(requested_system=resolved_system)
                 study_group = get_study_group(selected_study_number)
+
+                if study_group == CUSTOMIZED_GROUP:
+                    resolved_age, resolved_system = resolve_random_selection(selected_age, selected_system)
+                else:
+                    resolved_age, resolved_system = resolve_random_selection("Random", "Random")
+
+                case_data = choose_case(requested_system=resolved_system)
 
                 if study_group == CUSTOMIZED_GROUP:
                     caregiver_system_prompt = build_history_taking_system_prompt(case_data)
                     assessor_schema = build_assessor_schema(case_data)
                 else:
-                    caregiver_system_prompt = build_non_customized_caregiver_prompt(case_data)
+                    caregiver_system_prompt = build_non_customized_caregiver_prompt(
+                        case_data,
+                        optional_instruction=non_custom_instruction,
+                    )
                     assessor_schema = {}
 
                 session_id = str(uuid.uuid4())
@@ -1171,6 +1269,7 @@ if not st.session_state.case_data and not st.session_state.messages:
                 st.session_state.resolved_system = resolved_system
                 st.session_state.transcript_download_name = f"transcript_{selected_study_number}_{session_id}.txt"
                 st.session_state.active_mode = selected_mode
+                st.session_state.non_custom_instruction = non_custom_instruction
 
                 if selected_mode == "Text only":
                     st.session_state.messages = [
@@ -1246,12 +1345,7 @@ if (
     and st.session_state.study_group == NON_CUSTOMIZED_GROUP
     and not st.session_state.presentation_done
 ):
-    if st.button("End session", use_container_width=True):
-        st.session_state.presentation_done = True
-        st.session_state.mode = "post_presentation"
-        st.session_state.text_phase = "post_presentation"
-        st.session_state.case_ended_at = now_iso()
-        st.rerun()
+    st.caption("When you are finished, type that you are done. The chatbot will then ask if you would like feedback.")
 
 # =========================
 # Text mode
@@ -1322,11 +1416,16 @@ if st.session_state.presentation_done and st.session_state.study_group == CUSTOM
                 render_assessment_json(st.session_state.detailed_assessment_generated, detailed=True)
 
 # =========================
-# Non-customized completion note
+# Non-customized completion note and feedback
 # =========================
 if st.session_state.presentation_done and st.session_state.study_group == NON_CUSTOMIZED_GROUP:
     st.markdown("### Session complete")
-    st.info("This study arm does not include automated feedback.")
+
+    if st.session_state.generic_feedback:
+        st.markdown("### Feedback")
+        st.write(st.session_state.generic_feedback)
+    else:
+        st.info("No feedback selected for this session.")
 
 # =========================
 # Transcript tools
@@ -1373,6 +1472,5 @@ if st.session_state.presentation_done:
                 mime="text/plain",
                 use_container_width=True,
             )
-
 
 
