@@ -146,9 +146,12 @@ RANDOM_SYSTEM_POOL = [
     "Respiratory",
 ]
 
-STUDY_NUMBER_MAX = 126
+# You can adjust these two constants if needed.
+STUDY_NUMBERS_PER_ARM = 126
 STUDY_NUMBER_OPTIONS = ["Please select study number"] + [
-    f"1-{i:03d}" for i in range(1, STUDY_NUMBER_MAX + 1)
+    f"1-{i:03d}" for i in range(1, STUDY_NUMBERS_PER_ARM + 1)
+] + [
+    f"2-{i:03d}" for i in range(1, STUDY_NUMBERS_PER_ARM + 1)
 ]
 
 GRADE_LABELS = {
@@ -158,6 +161,9 @@ GRADE_LABELS = {
     4: "Highly Competent",
     5: "Exceptional Competence",
 }
+
+CUSTOMIZED_GROUP = "customized"
+NON_CUSTOMIZED_GROUP = "non_customized"
 
 # =========================
 # Helpers
@@ -399,6 +405,63 @@ def looks_like_differentials_response(text: str) -> bool:
     return any(marker in t for marker in differential_markers)
 
 
+def get_study_group(study_number: str | None) -> str:
+    if not study_number:
+        return CUSTOMIZED_GROUP
+
+    cleaned = str(study_number).strip()
+    prefix = cleaned.split("-")[0]
+
+    if prefix == "1":
+        return CUSTOMIZED_GROUP
+    if prefix == "2":
+        return NON_CUSTOMIZED_GROUP
+
+    return CUSTOMIZED_GROUP
+
+
+def build_non_customized_caregiver_prompt(case_data: dict) -> str:
+    return f"""
+You are role-playing a realistic caregiver in a paediatric history-taking practice conversation.
+
+This is a standard non-customized practice chatbot.
+Do not behave like an assessor, tutor, examiner, or preceptor.
+
+KNOWN FACTS:
+- Caregiver name: {case_data.get("caregiver_name")}
+- Caregiver role: {case_data.get("caregiver_role")}
+- Caregiver occupation: {case_data.get("caregiver_occupation")}
+- Child name: {case_data.get("child_name")}
+- Child age: {case_data.get("child_age")}
+- Child sex: {case_data.get("child_sex")}
+- Presenting complaint: {case_data.get("presenting_complaint")}
+- Siblings: {case_data.get("siblings")}
+- Residence: {case_data.get("residence")}
+- Birth place: {case_data.get("birth_place")}
+- Household structure: {case_data.get("household_structure")}
+- School/daycare: {case_data.get("school_or_daycare")}
+- Hidden case summary: {case_data.get("case_summary")}
+
+RULES:
+- Stay in caregiver role only.
+- Start naturally with this opening line:
+  "{case_data.get("opening_line")}"
+- Do not repeat the full opening line later unless directly asked who you are.
+- Do not ask the student any questions.
+- Do not guide the student.
+- Do not provide feedback.
+- Do not mention rubrics, scoring, grades, diagnosis, or differentials unless the student directly asks what you were told.
+- Answer naturally, briefly, and realistically.
+- Do not volunteer the whole history at once.
+- Only reveal information when asked.
+- Use simple caregiver language, not textbook language.
+- Keep answers internally consistent with the hidden case summary.
+- If the student's wording is vague or unclear, ask briefly for clarification.
+- Do not move into preceptor mode.
+- There is no structured end-stage. Remain the caregiver throughout.
+""".strip()
+
+
 def caregiver_reply_from_messages(messages, caregiver_system_prompt):
     response = client.responses.create(
         model="gpt-4.1-mini",
@@ -486,6 +549,20 @@ def insufficient_interaction_feedback_json(case_data):
 
 def call_assessment(messages, detailed: bool = False):
     case_data = st.session_state.case_data
+
+    if st.session_state.study_group == NON_CUSTOMIZED_GROUP:
+        return {
+            "grade": None,
+            "grade_label": "",
+            "diagnosis": None,
+            "important_expected_differentials": [],
+            "key_missed_history_questions": [],
+            "strengths": [],
+            "missed_opportunities": [],
+            "overall_feedback": "This study arm does not include automated rubric-based feedback.",
+            "case_summary": "",
+            "section_feedback": [],
+        }
 
     if not case_data:
         return {
@@ -622,6 +699,7 @@ def build_voice_url(session_id: str):
         "session_id": session_id,
         "study_number": st.session_state.study_number,
         "interaction_mode": st.session_state.active_mode,
+        "study_group": st.session_state.study_group,
         "return_url": STREAMLIT_APP_URL,
     }
     return f"{VOICE_SERVER_BASE_URL}/?{urllib.parse.urlencode(query)}"
@@ -668,6 +746,7 @@ def reset_case_state():
     st.session_state.active_mode = None
     st.session_state.caregiver_system_prompt = ""
     st.session_state.assessor_schema = {}
+    st.session_state.study_group = CUSTOMIZED_GROUP
 
 
 def apply_imported_messages(imported_obj, session_id=None, status_message="Voice transcript imported automatically."):
@@ -688,21 +767,37 @@ def apply_imported_messages(imported_obj, session_id=None, status_message="Voice
     if raw_payload.get("study_number"):
         st.session_state.study_number = raw_payload.get("study_number")
 
+    imported_group = raw_payload.get("study_group")
+    if imported_group in {CUSTOMIZED_GROUP, NON_CUSTOMIZED_GROUP}:
+        st.session_state.study_group = imported_group
+    else:
+        st.session_state.study_group = get_study_group(st.session_state.study_number)
+
     case_data_json = raw_payload.get("case_data_json")
     if case_data_json:
         try:
             st.session_state.case_data = json.loads(case_data_json)
-            st.session_state.caregiver_system_prompt = build_history_taking_system_prompt(st.session_state.case_data)
-            st.session_state.assessor_schema = build_assessor_schema(st.session_state.case_data)
+            if st.session_state.study_group == CUSTOMIZED_GROUP:
+                st.session_state.caregiver_system_prompt = build_history_taking_system_prompt(st.session_state.case_data)
+                st.session_state.assessor_schema = build_assessor_schema(st.session_state.case_data)
+            else:
+                st.session_state.caregiver_system_prompt = build_non_customized_caregiver_prompt(st.session_state.case_data)
+                st.session_state.assessor_schema = {}
         except Exception:
             st.session_state.case_data = None
 
     if session_id:
         st.session_state.current_session_id = session_id
 
-    st.session_state.presentation_done = looks_like_voice_session_complete(imported_messages)
-    st.session_state.mode = "post_presentation" if st.session_state.presentation_done else "caregiver"
-    st.session_state.text_phase = "post_presentation" if st.session_state.presentation_done else "caregiver"
+    if st.session_state.study_group == NON_CUSTOMIZED_GROUP:
+        st.session_state.presentation_done = True
+        st.session_state.mode = "post_presentation"
+        st.session_state.text_phase = "post_presentation"
+    else:
+        st.session_state.presentation_done = looks_like_voice_session_complete(imported_messages)
+        st.session_state.mode = "post_presentation" if st.session_state.presentation_done else "caregiver"
+        st.session_state.text_phase = "post_presentation" if st.session_state.presentation_done else "caregiver"
+
     st.session_state.active_mode = "Realtime voice"
 
     set_status("success", status_message)
@@ -711,6 +806,7 @@ def apply_imported_messages(imported_obj, session_id=None, status_message="Voice
 def build_transcript_text():
     header = [
         f"Study number: {st.session_state.study_number or 'Not recorded'}",
+        f"Study group: {st.session_state.study_group or 'Not recorded'}",
         f"Start {format_hhmm(st.session_state.case_started_at)}",
         f"End {format_hhmm(st.session_state.case_ended_at)}",
         f"Duration {format_duration(st.session_state.case_started_at, st.session_state.case_ended_at)}",
@@ -725,6 +821,7 @@ def build_transcript_text():
 def build_reflection_text():
     lines = [
         f"Study number: {st.session_state.study_number or 'Not recorded'}",
+        f"Study group: {st.session_state.study_group or 'Not recorded'}",
         f"Recorded at: {now_iso()}",
         "",
         "Reflection",
@@ -809,6 +906,11 @@ def render_assessment_json(data: dict, detailed: bool = False):
 
 
 def run_text_state_machine(user_text: str):
+    if st.session_state.study_group == NON_CUSTOMIZED_GROUP:
+        if looks_like_greeting_only(user_text):
+            return "Hello, doctor."
+        return caregiver_reply_from_messages(st.session_state.messages, st.session_state.caregiver_system_prompt)
+
     phase = st.session_state.text_phase
 
     if phase == "caregiver":
@@ -924,6 +1026,7 @@ defaults = {
     "selected_study_number": STUDY_NUMBER_OPTIONS[0],
     "active_mode": None,
     "study_number": None,
+    "study_group": CUSTOMIZED_GROUP,
     "last_voice_import_status": None,
     "study_number_confirmed": False,
     "case_started_at": None,
@@ -967,7 +1070,7 @@ if import_voice_flag == "1":
             status_message="Voice transcript imported automatically.",
         )
 
-        if auto_feedback_flag == "1":
+        if auto_feedback_flag == "1" and st.session_state.study_group == CUSTOMIZED_GROUP:
             with st.spinner("Generating brief feedback..."):
                 st.session_state.brief_assessment_generated = call_assessment(imported_obj["messages"], detailed=False)
                 st.session_state.presentation_done = True
@@ -999,7 +1102,11 @@ if not st.session_state.case_data and not st.session_state.messages:
     )
 
     if selected_study_number != "Please select study number":
+        study_group_preview = get_study_group(selected_study_number)
         st.markdown(f"**Study number selected:** {selected_study_number}")
+        st.markdown(
+            f"**Study arm:** {'Customized bot' if study_group_preview == CUSTOMIZED_GROUP else 'Non-customized bot'}"
+        )
         confirm_checkbox = st.checkbox(
             "Please confirm this is your study number",
             key="study_number_confirm_checkbox",
@@ -1041,8 +1148,15 @@ if not st.session_state.case_data and not st.session_state.messages:
             try:
                 resolved_age, resolved_system = resolve_random_selection(selected_age, selected_system)
                 case_data = choose_case(requested_system=resolved_system)
-                caregiver_system_prompt = build_history_taking_system_prompt(case_data)
-                assessor_schema = build_assessor_schema(case_data)
+                study_group = get_study_group(selected_study_number)
+
+                if study_group == CUSTOMIZED_GROUP:
+                    caregiver_system_prompt = build_history_taking_system_prompt(case_data)
+                    assessor_schema = build_assessor_schema(case_data)
+                else:
+                    caregiver_system_prompt = build_non_customized_caregiver_prompt(case_data)
+                    assessor_schema = {}
+
                 session_id = str(uuid.uuid4())
 
                 reset_case_state()
@@ -1052,6 +1166,7 @@ if not st.session_state.case_data and not st.session_state.messages:
                 st.session_state.current_session_id = session_id
                 st.session_state.case_started_at = now_iso()
                 st.session_state.study_number = selected_study_number
+                st.session_state.study_group = study_group
                 st.session_state.resolved_age = resolved_age
                 st.session_state.resolved_system = resolved_system
                 st.session_state.transcript_download_name = f"transcript_{selected_study_number}_{session_id}.txt"
@@ -1100,6 +1215,14 @@ elif isinstance(status_value, str) and status_value.strip():
     st.info(status_value.strip())
 
 # =========================
+# Study arm display
+# =========================
+if st.session_state.case_data:
+    st.caption(
+        f"Study arm: {'Customized bot' if st.session_state.study_group == CUSTOMIZED_GROUP else 'Non-customized bot'}"
+    )
+
+# =========================
 # Conversation display
 # =========================
 show_live_transcript = (
@@ -1115,6 +1238,22 @@ if show_live_transcript:
             st.write(m["content"])
 
 # =========================
+# Non-customized text session end button
+# =========================
+if (
+    st.session_state.case_data
+    and st.session_state.active_mode == "Text only"
+    and st.session_state.study_group == NON_CUSTOMIZED_GROUP
+    and not st.session_state.presentation_done
+):
+    if st.button("End session", use_container_width=True):
+        st.session_state.presentation_done = True
+        st.session_state.mode = "post_presentation"
+        st.session_state.text_phase = "post_presentation"
+        st.session_state.case_ended_at = now_iso()
+        st.rerun()
+
+# =========================
 # Text mode
 # =========================
 if (
@@ -1128,7 +1267,10 @@ if (
         assistant_text = run_text_state_machine(prompt)
         st.session_state.messages.append({"role": "assistant", "content": assistant_text})
 
-        if normalize_text(assistant_text) == normalize_text(TEXT_FINAL_LINE):
+        if (
+            st.session_state.study_group == CUSTOMIZED_GROUP
+            and normalize_text(assistant_text) == normalize_text(TEXT_FINAL_LINE)
+        ):
             with st.spinner("Generating brief feedback..."):
                 st.session_state.brief_assessment_generated = call_assessment(
                     st.session_state.messages,
@@ -1147,7 +1289,7 @@ elif st.session_state.messages and not st.session_state.case_data:
 # =========================
 # Feedback
 # =========================
-if st.session_state.presentation_done:
+if st.session_state.presentation_done and st.session_state.study_group == CUSTOMIZED_GROUP:
     st.markdown("### Feedback")
 
     if not st.session_state.brief_assessment_generated:
@@ -1178,6 +1320,13 @@ if st.session_state.presentation_done:
         if st.session_state.detailed_assessment_generated:
             with st.expander("Detailed feedback", expanded=True):
                 render_assessment_json(st.session_state.detailed_assessment_generated, detailed=True)
+
+# =========================
+# Non-customized completion note
+# =========================
+if st.session_state.presentation_done and st.session_state.study_group == NON_CUSTOMIZED_GROUP:
+    st.markdown("### Session complete")
+    st.info("This study arm does not include automated feedback.")
 
 # =========================
 # Transcript tools
