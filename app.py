@@ -1,4 +1,3 @@
-import os
 import copy
 import json
 import random
@@ -17,8 +16,7 @@ from dynamic_rubric import (
     build_assessor_system_prompt,
     build_assessor_schema,
 )
-from progress_db import (
-    init_db,
+from supabase_db import (
     save_session_result,
     get_student_sessions,
     get_student_summary,
@@ -88,7 +86,6 @@ st.markdown(
 # =========================
 api_key = st.secrets["OPENAI_API_KEY"]
 client = OpenAI(api_key=api_key)
-init_db()
 
 VOICE_SERVER_BASE_URL = "https://history-taking-voice.onrender.com"
 STREAMLIT_APP_URL = "https://history-takinggit-eexzk8appdm3vzfej2vtuzn.streamlit.app/"
@@ -539,10 +536,6 @@ def get_recent_customized_sessions(study_number: str, limit: int = 8) -> list[di
 
 
 def choose_novel_random_targets(study_number: str, selected_age: str, selected_system: str):
-    """
-    When a returning customized student chooses Random,
-    try to avoid recently seen age groups and systems.
-    """
     sessions = get_recent_customized_sessions(study_number, limit=6)
 
     recent_ages = [str(s.get("age_group", "")).strip() for s in sessions if s.get("age_group")]
@@ -567,10 +560,6 @@ def choose_novel_random_targets(study_number: str, selected_age: str, selected_s
 
 
 def choose_case_with_history(requested_system: str, study_number: str | None = None, avoid_recent_repeat: bool = False) -> dict:
-    """
-    Draw a case from the current pool, but for returning customized
-    students in random mode, try to avoid recently seen diagnoses.
-    """
     if not avoid_recent_repeat or not study_number or get_study_group(study_number) != CUSTOMIZED_GROUP:
         return choose_case(requested_system=requested_system)
 
@@ -742,11 +731,6 @@ def build_opening_line(caregiver_name: str, child_name: str, caregiver_role: str
 
 
 def apply_dynamic_case_variation(case_data: dict, resolved_age: str) -> dict:
-    """
-    Keeps the underlying diagnosis/case structure the same,
-    but varies the presentation details so the same diagnosis
-    does not appear as the exact same child/scenario each time.
-    """
     varied = copy.deepcopy(case_data)
 
     diagnosis = extract_case_diagnosis(varied)
@@ -1984,28 +1968,3 @@ if st.session_state.presentation_done:
                 mime="text/plain",
                 use_container_width=True,
             )
-            # ===============================
-# ADMIN: DOWNLOAD DATABASE
-# ===============================
-
-try:
-    DB_PATH = "student_progress.db"
-
-    import os
-
-    st.markdown("---")
-    st.subheader("Admin: Download Database")
-
-    if os.path.exists(DB_PATH):
-        with open(DB_PATH, "rb") as f:
-            st.download_button(
-                label="Download student database",
-                data=f,
-                file_name="student_progress.db",
-                mime="application/octet-stream"
-            )
-    else:
-        st.warning("Database file not found in this environment.")
-
-except Exception as e:
-    st.error(f"Download section error: {e}")
