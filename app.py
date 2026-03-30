@@ -494,7 +494,7 @@ def looks_like_differentials_response(text: str) -> bool:
     if looks_like_history_question(text):
         return False
     differential_markers = [
-        ",", ";", "or", "also", "another", "differential", "possibility", "could be"
+        ",", ";", "or", "and", "also", "another", "differential", "possibility", "could be"
     ]
     if len(t.split()) < 2:
         return False
