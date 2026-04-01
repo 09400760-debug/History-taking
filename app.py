@@ -474,19 +474,63 @@ def looks_like_summary_response(text: str) -> bool:
 
 def looks_like_diagnosis_response(text: str) -> bool:
     t = normalize_text(text)
+
     if looks_like_history_question(text):
         return False
-    if len(t.split()) > 20:
+
+    if not t:
         return False
+
+    word_count = len(t.split())
+    if word_count > 12:
+        return False
+
+    non_diagnosis_phrases = [
+        "that is a diagnosis",
+        "this is a diagnosis",
+        "i don't know",
+        "dont know",
+        "not sure",
+        "can i ask",
+        "tell me",
+        "what do you mean",
+        "i need more information",
+        "more information",
+    ]
+    if any(p in t for p in non_diagnosis_phrases):
+        return False
+
     diagnosis_markers = [
         "pyelonephritis", "uti", "urinary tract infection", "epilepsy", "meningitis",
         "pneumonia", "bronchiolitis", "asthma", "tuberculosis", "tb", "appendicitis",
         "gastroenteritis", "dehydration", "sepsis", "nephrotic syndrome", "nephritic syndrome",
         "reflux", "cerebral palsy", "migraine", "febrile seizure", "pertussis",
         "croup", "foreign body aspiration", "congenital heart disease", "malnutrition",
-        "hepatitis", "dysentery", "constipation", "rickets", "congenital syphilis"
+        "hepatitis", "dysentery", "constipation", "rickets", "congenital syphilis",
+        "tetralogy of fallot", "tof", "transposition of the great arteries", "tga",
+        "tricuspid atresia", "pulmonary atresia", "ventricular septal defect", "vsd",
+        "atrial septal defect", "asd", "patent ductus arteriosus", "pda",
+        "coarctation of the aorta", "pulmonary stenosis", "aortic stenosis",
+        "cyanotic congenital heart disease", "acyanotic congenital heart disease",
+        "heart failure", "cardiomyopathy", "myocarditis", "endocarditis"
     ]
-    return any(marker in t for marker in diagnosis_markers)
+
+    if any(marker in t for marker in diagnosis_markers):
+        return True
+
+    diagnosis_like_prefixes = [
+        "i think it is",
+        "most likely",
+        "this is",
+        "it is",
+        "likely",
+        "probably",
+        "concerned about",
+    ]
+    if any(t.startswith(p) for p in diagnosis_like_prefixes):
+        return True
+
+    return True
 
 
 def looks_like_differentials_response(text: str) -> bool:
