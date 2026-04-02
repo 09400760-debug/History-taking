@@ -908,8 +908,8 @@ CRITICAL REALISM RULES:
   - "a fit" or "episode"
   - "very sleepy"
   - "breathing fast"
-  - "blue spells" only if that is how a caregiver would reasonably describe it
-  - "burning or pain when passing urine"
+  - "pain when passing urine"
+  - "swollen eyes" or "puffy face"
 - Do not sound like a nurse, doctor, or medical student.
 - Do not summarise the illness in clinical language.
 
