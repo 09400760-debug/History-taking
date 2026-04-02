@@ -301,8 +301,8 @@ def safe_int(value):
 def is_yes(text: str) -> bool:
     t = normalize_text(text)
     yes_values = {
-        "yes", "y", "yeah", "yep", "okay", "ok", "sure", "please do",
-        "go ahead", "continue", "yes please", "okay yes", "ok yes"
+        "yes", "y", "yeah", "yep", "yes please", "ready", "ready for feedback",
+        "feedback please", "proceed", "please proceed", "continue to feedback"
     }
     return t in yes_values or t.startswith("yes ")
 
@@ -496,6 +496,7 @@ def looks_like_diagnosis_response(text: str) -> bool:
         "what do you mean",
         "i need more information",
         "more information",
+        "question",
     ]
     if any(p in t for p in non_diagnosis_phrases):
         return False
@@ -526,11 +527,10 @@ def looks_like_diagnosis_response(text: str) -> bool:
         "likely",
         "probably",
         "concerned about",
+        "community acquired",
+        "community-acquired",
     ]
-    if any(t.startswith(p) for p in diagnosis_like_prefixes):
-        return True
-
-    return True
+    return any(t.startswith(p) for p in diagnosis_like_prefixes)
 
 
 def looks_like_differentials_response(text: str) -> bool:
@@ -772,11 +772,26 @@ def build_presenting_complaint_variant(diagnosis: str, age_group: str, original:
 
 
 def build_opening_line(caregiver_name: str, child_name: str, caregiver_role: str, presenting_complaint: str) -> str:
-    complaint = str(presenting_complaint or "").strip()
-    if complaint:
-        template = random.choice(OPENING_WORRY_TEMPLATES)
-        return f"Hello doctor, I'm {caregiver_name}, {child_name}'s {caregiver_role}. {template.format(complaint=complaint)}"
     return f"Hello doctor, I'm {caregiver_name}, {child_name}'s {caregiver_role}."
+
+
+def adapt_context_age_text(original_context: str, child_age: str) -> str:
+    context = str(original_context or "").strip()
+    if not context:
+        return context
+
+    patterns = [
+        r"^(A|An)\s+[^,.]+?\s+(child\s+)?has\s+",
+        r"^(A|An)\s+[^,.]+?\s+(with|who has)\s+",
+    ]
+
+    for pattern in patterns:
+        match = re.match(pattern, context, flags=re.IGNORECASE)
+        if match:
+            remainder = context[match.end():].strip()
+            return f"A child aged {child_age} has {remainder}"
+
+    return re.sub(r"^(A|An)\s+[^,.]+", f"A child aged {child_age}", context, count=1)
 
 
 def apply_dynamic_case_variation(case_data: dict, resolved_age: str) -> dict:
@@ -806,6 +821,7 @@ def apply_dynamic_case_variation(case_data: dict, resolved_age: str) -> dict:
     varied["child_sex"] = child_sex
     varied["child_name"] = child_name
     varied["child_age"] = generate_age_string(resolved_age)
+    varied["age_label"] = varied["child_age"]
     varied["caregiver_role"] = caregiver_role
     varied["caregiver_name"] = caregiver_name
     varied["caregiver_gender"] = caregiver_gender
@@ -822,6 +838,8 @@ def apply_dynamic_case_variation(case_data: dict, resolved_age: str) -> dict:
         original=varied.get("presenting_complaint", ""),
     )
     varied["presenting_complaint"] = varied_presenting
+    varied["context"] = adapt_context_age_text(varied.get("context", ""), varied["child_age"])
+    varied["case_summary"] = varied["context"]
     varied["opening_line"] = build_opening_line(
         caregiver_name=varied["caregiver_name"],
         child_name=varied["child_name"],
@@ -2033,3 +2051,4 @@ if st.session_state.presentation_done:
                 mime="text/plain",
                 use_container_width=True,
             )
+
