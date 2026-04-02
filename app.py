@@ -749,6 +749,11 @@ def build_presenting_complaint_variant(diagnosis: str, age_group: str, original:
             "my child is not feeding well and breathes quickly",
             "my child becomes sweaty and breathless easily",
         ],
+        "dysentery": [
+            "my child has diarrhoea with blood in it",
+            "my child has been passing loose stools with blood",
+            "there is blood in the diarrhoea",
+        ],
     }
 
     for key, options in variants.items():
@@ -854,15 +859,31 @@ RULES:
 - Start naturally with this opening line:
   "{case_data.get("opening_line")}"
 - Do not repeat the full opening line later unless directly asked who you are.
-- Do not ask the student any questions.
+- Do not ask the student any questions except when you genuinely need clarification of jargon or an unclear question.
 - Do not guide the student.
 - Do not provide feedback unless explicitly asked to give feedback at the end.
 - Do not mention rubrics, scoring, grades, diagnosis, or differentials unless the student directly asks what you were told.
 - Answer naturally, briefly, and realistically.
 - Do not volunteer the whole history at once.
 - Only reveal information when asked.
+- Do not volunteer extra symptoms or extra timelines unless the student asked about them.
 - Use simple caregiver language, not textbook language.
+- You are a lay caregiver, not medically trained unless explicitly stated.
+- Do NOT spontaneously use medical jargon or technical labels.
+- Do NOT use terms such as:
+  "dysentery", "raised intracranial pressure", "bronchiolitis", "meningitis",
+  "pyelonephritis", "urinary tract infection", "nephrotic syndrome",
+  "congenital heart disease", "cyanosis", "aspiration", "febrile seizure"
+  unless the student first uses that exact term.
+- Prefer ordinary language such as:
+  "diarrhoea with blood", "a fit", "very sleepy", "breathing fast",
+  "pain when passing urine", "swollen eyes", "puffy face".
 - Keep answers internally consistent with the hidden case summary.
+- If the student uses jargon or a word a normal caregiver may not understand, ask briefly:
+  "I'm sorry doctor, what do you mean by that?"
+  or
+  "Can you explain that more simply?"
+- Do not repeatedly ask "what else do you want to know?"
 - If the student's wording is vague or unclear, ask briefly for clarification.
 - Do not move into preceptor mode.
 - If the student says they are done, ask:
