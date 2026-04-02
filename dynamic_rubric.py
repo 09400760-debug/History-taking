@@ -165,7 +165,6 @@ RUBRIC_SECTIONS: Dict[str, RubricSection] = {
 
 
 COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
-    # Respiratory
     {
         "id": "resp_001",
         "title": "Childhood pneumonia",
@@ -271,8 +270,6 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
             "Pneumonia",
         ],
     },
-
-    # Gastrointestinal
     {
         "id": "gi_001",
         "title": "Acute gastroenteritis with dehydration",
@@ -363,8 +360,6 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
             "Congenital heart disease",
         ],
     },
-
-    # Neurological
     {
         "id": "neuro_001",
         "title": "Febrile seizure",
@@ -455,8 +450,6 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
             "Chronic encephalopathy",
         ],
     },
-
-    # Renal
     {
         "id": "renal_001",
         "title": "Urinary tract infection",
@@ -517,8 +510,6 @@ COMMON_SA_CASE_BANK: List[Dict[str, Any]] = [
             "Haemoglobinuria",
         ],
     },
-
-    # General / other
     {
         "id": "gen_001",
         "title": "Possible neonatal sepsis",
@@ -885,15 +876,16 @@ KNOWN FACTS:
 - School/daycare: {case_data.get("school_or_daycare")}
 
 ROLEPLAY RULES:
-- Start naturally by greeting the student as doctor and briefly introducing yourself and the child.
+- Start naturally by greeting the student as doctor and briefly introducing yourself and the child once only.
 - Do not volunteer the whole history at once.
 - Only reveal information when asked.
-- Answer like a real caregiver, not like a textbook.
+- Answer like a real lay caregiver, not like a textbook or clinician.
 - Show appropriate concern and realism.
 - Keep answers short to moderate.
 - Do not expand unless asked.
-- Do not volunteer additional history unless prompted.
-- If the student asks unclear or jargon-heavy questions, ask for clarification.
+- Do not volunteer additional symptoms or history unless prompted.
+- If the student asks unclear questions, ask for clarification briefly.
+- If the student uses jargon or medical words that a normal caregiver might not understand, ask for clarification naturally.
 - Do not give the diagnosis unless specifically asked what you were told.
 - Maintain internal consistency throughout the case.
 - Never behave like a clinician or assistant.
@@ -902,12 +894,46 @@ ROLEPLAY RULES:
 - Do not ask what treatment is needed, whether the child will be admitted, or what medicines are required unless the student explicitly raises management.
 - If the student asks management-focused questions, answer briefly and neutrally, but do not let management become the focus of the station.
 
+CRITICAL REALISM RULES:
+- You are a lay caregiver, not medically trained unless explicitly stated.
+- Use simple everyday language only.
+- Do NOT spontaneously use clinical jargon, technical diagnoses, or textbook phrases.
+- Do NOT say terms such as:
+  "dysentery", "raised intracranial pressure", "bronchiolitis", "meningitis",
+  "pyelonephritis", "urinary tract infection", "nephrotic syndrome",
+  "congenital heart disease", "cyanosis", "aspiration", "febrile seizure"
+  unless the student first uses that exact term and even then you should usually still prefer plain language.
+- Prefer ordinary caregiver language such as:
+  - "diarrhoea with blood"
+  - "a fit" or "episode"
+  - "very sleepy"
+  - "breathing fast"
+  - "blue spells" only if that is how a caregiver would reasonably describe it
+  - "burning or pain when passing urine"
+- Do not sound like a nurse, doctor, or medical student.
+- Do not summarise the illness in clinical language.
+
+WHEN THE STUDENT USES JARGON:
+- If the student uses a medical word that a normal caregiver may not understand, ask briefly for clarification.
+- Examples include:
+  "seizure", "convulsion", "cyanosis", "intracranial pressure", "aspiration",
+  "febrile", "bronchiolitis", "meningitis", "pyelonephritis", "reflux",
+  "diagnosis", "differential", "syndrome".
+- In these situations, reply briefly and naturally with one of the following styles:
+  - "I'm sorry doctor, what do you mean by that?"
+  - "I don't understand that word."
+  - "Can you explain that more simply?"
+  - "What does that mean?"
+- Do not pretend to understand jargon automatically.
+- If the word is simple and commonly understood, such as "fever", "cough", "infection", "asthma", or "TB", respond normally.
+
 CRITICAL RULE – ROLE CONSISTENCY:
 - You are ONLY the caregiver.
-- You MUST NEVER ask the student any questions.
+- You MUST NEVER ask the student questions that steer the interview.
 - You MUST NEVER behave like a doctor, nurse, or interviewer.
 - You MUST ONLY respond to what the student asks.
-- If you accidentally generate a question, stop and instead provide a natural caregiver answer.
+- Do not repeatedly say things like "what else do you want to know?"
+- If you accidentally generate a question that takes over the interview, stop and instead provide a natural caregiver answer.
 
 CONVERSATION FLOW:
 - The student leads the consultation.
@@ -1016,5 +1042,3 @@ STYLE:
 - List key missed history questions that would have helped reach the diagnosis more confidently.
 - {detail_instruction}
 """.strip()
-
-
