@@ -1428,12 +1428,6 @@ def clear_return_query_params():
             pass
 
 
-
-
-def has_active_case() -> bool:
-    return bool(st.session_state.get("case_started", False) and st.session_state.get("case_data") is not None)
-
-
 def set_status(level: str, message: str):
     st.session_state.last_voice_import_status = {"level": level, "message": message}
 
@@ -1870,6 +1864,20 @@ if (
 st.title(APP_TITLE)
 st.info(WELCOME_TEXT)
 
+active_case = bool(st.session_state.get("case_started", False) and st.session_state.case_data is not None)
+
+if not st.session_state.get("case_started", False) and st.session_state.case_data is not None:
+    st.session_state.case_data = None
+    st.session_state.messages = []
+    st.session_state.current_session_id = None
+    st.session_state.presentation_done = False
+    st.session_state.mode = "caregiver"
+    st.session_state.text_phase = "caregiver"
+    st.session_state.active_mode = None
+    st.session_state.caregiver_system_prompt = ""
+    st.session_state.assessor_schema = {}
+    active_case = False
+
 # =========================
 # Setup section
 # =========================
@@ -2064,7 +2072,7 @@ elif isinstance(status_value, str) and status_value.strip():
 # =========================
 # Study arm display
 # =========================
-if has_active_case():
+if active_case:
     arm_text = 'Customized bot' if st.session_state.study_group == CUSTOMIZED_GROUP else 'Non-customized bot'
     st.caption(
         f"Student email: {st.session_state.student_email or 'Not recorded'} | Study number: {st.session_state.study_number or 'Not recorded'} | Study arm: {arm_text}"
@@ -2073,14 +2081,14 @@ if has_active_case():
 # =========================
 # Progress display during active customized sessions
 # =========================
-if has_active_case() and st.session_state.study_group == CUSTOMIZED_GROUP and st.session_state.study_number:
+if active_case and st.session_state.study_group == CUSTOMIZED_GROUP and st.session_state.study_number:
     render_student_progress()
 
 # =========================
 # Conversation display
 # =========================
 show_live_transcript = (
-    has_active_case() and st.session_state.case_data
+    active_case
     and not st.session_state.presentation_done
     and st.session_state.active_mode == "Text only"
 )
@@ -2095,8 +2103,7 @@ if show_live_transcript:
 # Non-customized text hint
 # =========================
 if (
-    has_active_case()
-    and st.session_state.case_data
+    active_case
     and st.session_state.active_mode == "Text only"
     and st.session_state.study_group == NON_CUSTOMIZED_GROUP
     and not st.session_state.presentation_done
@@ -2107,8 +2114,7 @@ if (
 # Text mode
 # =========================
 if (
-    has_active_case()
-    and st.session_state.case_data
+    active_case
     and st.session_state.active_mode == "Text only"
     and st.session_state.mode != "post_presentation"
 ):
@@ -2148,7 +2154,7 @@ elif st.session_state.messages and not st.session_state.case_data:
 # =========================
 # Feedback
 # =========================
-if has_active_case() and st.session_state.presentation_done and st.session_state.study_group == CUSTOMIZED_GROUP:
+if active_case and st.session_state.presentation_done and st.session_state.study_group == CUSTOMIZED_GROUP:
     st.markdown("### Feedback")
 
     if not st.session_state.brief_assessment_generated:
@@ -2184,7 +2190,7 @@ if has_active_case() and st.session_state.presentation_done and st.session_state
 # =========================
 # Non-customized completion note and feedback
 # =========================
-if has_active_case() and st.session_state.presentation_done and st.session_state.study_group == NON_CUSTOMIZED_GROUP:
+if active_case and st.session_state.presentation_done and st.session_state.study_group == NON_CUSTOMIZED_GROUP:
     if not st.session_state.db_save_completed:
         save_session_to_db()
 
@@ -2199,7 +2205,7 @@ if has_active_case() and st.session_state.presentation_done and st.session_state
 # =========================
 # Transcript tools
 # =========================
-if has_active_case() and st.session_state.presentation_done and st.session_state.messages:
+if active_case and st.session_state.presentation_done and st.session_state.messages:
     st.markdown("### Transcript")
 
     with st.expander("View transcript", expanded=False):
@@ -2217,7 +2223,7 @@ if has_active_case() and st.session_state.presentation_done and st.session_state
 
 
 
-if has_active_case() or st.session_state.messages:
+if active_case or st.session_state.messages:
     if st.button("Start another case", use_container_width=True):
         reset_case_state()
         clear_return_query_params()
@@ -2226,7 +2232,7 @@ if has_active_case() or st.session_state.messages:
 # =========================
 # Reflection
 # =========================
-if has_active_case() and st.session_state.presentation_done:
+if active_case and st.session_state.presentation_done:
     st.markdown("### Reflection")
 
     if not st.session_state.show_reflection_box:
@@ -2249,6 +2255,34 @@ if has_active_case() and st.session_state.presentation_done:
                 mime="text/plain",
                 use_container_width=True,
             )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
