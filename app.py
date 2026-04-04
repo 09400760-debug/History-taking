@@ -1213,9 +1213,6 @@ Transcript:
 
 
 def save_session_to_db():
-    if st.session_state.db_save_completed:
-        return
-
     study_number = st.session_state.study_number
     session_id = st.session_state.current_session_id
 
@@ -1239,22 +1236,28 @@ def save_session_to_db():
     case_summary = st.session_state.case_data.get("case_summary") if isinstance(st.session_state.case_data, dict) else None
 
     if st.session_state.study_group == CUSTOMIZED_GROUP:
-        if not assessment:
+        save_stage = "assessment" if assessment else "transcript"
+        existing_stage = st.session_state.get("db_save_stage", "none")
+        if existing_stage == "assessment" or existing_stage == save_stage:
             return
-        overall_feedback = assessment.get("overall_feedback")
-        grade = safe_int(assessment.get("grade"))
-        grade_label = assessment.get("grade_label")
-        diagnosis = assessment.get("diagnosis")
-        strengths = assessment.get("strengths", [])
-        missed_opportunities = assessment.get("missed_opportunities", [])
-        key_missed_history_questions = assessment.get("key_missed_history_questions", [])
-        case_summary = assessment.get("case_summary") or case_summary
+
+        if assessment:
+            overall_feedback = assessment.get("overall_feedback")
+            grade = safe_int(assessment.get("grade"))
+            grade_label = assessment.get("grade_label")
+            diagnosis = assessment.get("diagnosis")
+            strengths = assessment.get("strengths", [])
+            missed_opportunities = assessment.get("missed_opportunities", [])
+            key_missed_history_questions = assessment.get("key_missed_history_questions", [])
+            case_summary = assessment.get("case_summary") or case_summary
+        else:
+            overall_feedback = "Customized session captured. Feedback not yet generated."
     else:
+        save_stage = "transcript"
+        existing_stage = st.session_state.get("db_save_stage", "none")
+        if existing_stage == save_stage:
+            return
         overall_feedback = st.session_state.generic_feedback or "Non-customized session captured. No rubric-based feedback."
-        diagnosis = None
-        strengths = []
-        missed_opportunities = []
-        key_missed_history_questions = []
 
     save_session_result(
         study_number=study_number,
@@ -1276,6 +1279,7 @@ def save_session_to_db():
     )
 
     st.session_state.db_save_completed = True
+    st.session_state.db_save_stage = save_stage
 
 
 def render_student_progress():
@@ -1798,17 +1802,21 @@ for key, value in defaults.items():
 # =========================
 # Query params recovery
 # =========================
-query_session_id = str(get_query_param("session_id", "")).strip()
-if query_session_id:
-    st.session_state.current_session_id = query_session_id
-
 import_voice_flag = str(get_query_param("import_voice", "0")).strip()
 auto_feedback_flag = str(get_query_param("auto_feedback", "0")).strip()
+query_session_id = str(get_query_param("session_id", "")).strip()
+
+if import_voice_flag == "1" and query_session_id:
+    st.session_state.current_session_id = query_session_id
 
 # =========================
 # Auto-import when returning from voice page
 # =========================
-if import_voice_flag == "1":
+if (
+    import_voice_flag == "1"
+    and query_session_id
+    and st.session_state.get("last_imported_session_id") != query_session_id
+):
     imported_obj, import_error = import_voice_transcript(st.session_state.current_session_id)
 
     if import_error:
@@ -1826,17 +1834,19 @@ if import_voice_flag == "1":
                     imported_obj["messages"],
                     detailed=False,
                 )
+                if not st.session_state.case_ended_at:
+                    st.session_state.case_ended_at = now_iso()
                 save_session_to_db()
                 st.session_state.presentation_done = True
                 st.session_state.mode = "post_presentation"
                 st.session_state.text_phase = "post_presentation"
                 st.session_state.active_mode = "Realtime voice"
-                if not st.session_state.case_ended_at:
-                    st.session_state.case_ended_at = now_iso()
-        elif st.session_state.study_group == NON_CUSTOMIZED_GROUP:
+        else:
             if not st.session_state.case_ended_at:
                 st.session_state.case_ended_at = now_iso()
             save_session_to_db()
+
+        st.session_state.last_imported_session_id = query_session_id
 
     clear_return_query_params()
     st.rerun()
@@ -2188,6 +2198,14 @@ if st.session_state.presentation_done and st.session_state.messages:
         use_container_width=True,
     )
 
+
+
+if st.session_state.case_data or st.session_state.messages:
+    if st.button("Start another case", use_container_width=True):
+        reset_case_state()
+        clear_return_query_params()
+        st.rerun()
+
 # =========================
 # Reflection
 # =========================
@@ -2214,6 +2232,10 @@ if st.session_state.presentation_done:
                 mime="text/plain",
                 use_container_width=True,
             )
+
+
+
+
 
 
 
