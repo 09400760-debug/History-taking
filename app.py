@@ -1461,6 +1461,7 @@ def reset_case_state():
     st.session_state.db_save_stage = "none"
     st.session_state.last_imported_session_id = None
     st.session_state.case_started = False
+    st.session_state.setup_step = "identify"
     st.session_state.prior_sessions_loaded = False
 
 
@@ -1472,6 +1473,7 @@ def apply_imported_messages(imported_obj, session_id=None, status_message="Voice
     st.session_state.detailed_assessment_generated = None
     st.session_state.db_save_completed = False
     st.session_state.case_started = True
+    st.session_state.setup_step = "active"
 
     raw_payload = imported_obj.get("raw_payload") or {}
     st.session_state.case_started_at = raw_payload.get("started_at") or st.session_state.case_started_at
@@ -1800,6 +1802,7 @@ defaults = {
     "db_save_stage": "none",
     "last_imported_session_id": None,
     "case_started": False,
+    "setup_step": "identify",
 }
 
 for key, value in defaults.items():
@@ -1865,178 +1868,184 @@ st.title(APP_TITLE)
 st.info(WELCOME_TEXT)
 
 active_case = bool(st.session_state.get("case_started", False) and st.session_state.case_data is not None)
-if not active_case:
-    # Prevent stale lower-page sections from rendering while the user is still on setup
+
+if not active_case and st.session_state.case_data is not None:
+    # Clear stale case payload if setup should be showing.
+    st.session_state.case_data = None
+    st.session_state.messages = []
+    st.session_state.current_session_id = None
     st.session_state.presentation_done = False
     st.session_state.mode = "caregiver"
-    if not st.session_state.get("case_started", False):
-        st.session_state.messages = []
-        st.session_state.case_data = None
-        st.session_state.current_session_id = None
-        st.session_state.active_mode = None
-        st.session_state.brief_assessment_generated = None
-        st.session_state.detailed_assessment_generated = None
-        st.session_state.generic_feedback = None
-        st.session_state.case_ended_at = None
-        st.session_state.db_save_completed = False
-        st.session_state.db_save_stage = "none"
+    st.session_state.text_phase = "caregiver"
+    st.session_state.active_mode = None
+    st.session_state.case_started = False
+
 
 # =========================
 # Setup section
 # =========================
-if not st.session_state.get("case_started", False):
+if not active_case:
     st.markdown("### Session setup")
 
-    entered_email = st.text_input(
-        "Enter your study email address",
-        key="entered_email",
-        help="Use the email address that was loaded into the students table.",
-    )
+    if st.session_state.get("setup_step") not in {"identify", "configure"}:
+        st.session_state.setup_step = "identify"
 
-    lookup_email = normalize_email(entered_email)
-    student_record = None
-    lookup_error = None
+    if st.session_state.setup_step == "identify":
+        with st.form("identify_student_form"):
+            st.text_input(
+                "Enter your study email address",
+                key="entered_email",
+                help="Use the email address that was loaded into the students table.",
+            )
+            confirm_email = st.form_submit_button("Confirm email", use_container_width=True)
 
-    if lookup_email:
-        student_record, lookup_error = fetch_student_record_by_email(lookup_email)
-        if student_record:
-            st.session_state.student_record = student_record
-            st.session_state.student_email = student_record["email"]
-            st.session_state.study_number = student_record["study_number"]
-            st.session_state.study_group = student_record["study_group"]
-        else:
-            st.session_state.student_record = None
-            st.session_state.student_email = lookup_email
-            st.session_state.study_number = None
-            st.session_state.study_group = CUSTOMIZED_GROUP
+        if confirm_email:
+            lookup_email = normalize_email(st.session_state.entered_email)
+            if not lookup_email:
+                st.warning("Please enter your study email address first.")
+            else:
+                student_record, lookup_error = fetch_student_record_by_email(lookup_email)
+                if student_record:
+                    st.session_state.student_record = student_record
+                    st.session_state.student_email = student_record["email"]
+                    st.session_state.study_number = student_record["study_number"]
+                    st.session_state.study_group = student_record["study_group"]
+                    st.session_state.setup_step = "configure"
+                    st.rerun()
+                else:
+                    st.session_state.student_record = None
+                    st.session_state.student_email = lookup_email
+                    st.session_state.study_number = None
+                    st.session_state.study_group = CUSTOMIZED_GROUP
+                    st.warning(lookup_error or "That email address was not found in the students table.")
 
-    if student_record:
+    elif st.session_state.setup_step == "configure":
+        student_record = st.session_state.student_record
+        if not student_record:
+            st.session_state.setup_step = "identify"
+            st.rerun()
+
         arm_label = "Customized bot" if student_record["study_group"] == CUSTOMIZED_GROUP else "Non-customized bot"
         st.success(f"Email found. Study number: {student_record['study_number']} | Study arm: {arm_label}")
         if student_record.get("group_name"):
             st.caption(f"Group name in table: {student_record['group_name']}")
-    elif lookup_email and lookup_error:
-        st.warning(lookup_error)
 
-    selected_mode = st.radio(
-        "Choose interaction mode",
-        VISIBLE_INTERACTION_MODES,
-        key="selected_mode",
-    )
+        active_group = student_record["study_group"]
 
-    active_group = student_record["study_group"] if student_record else CUSTOMIZED_GROUP
+        with st.form("configure_case_form"):
+            st.radio(
+                "Choose interaction mode",
+                VISIBLE_INTERACTION_MODES,
+                key="selected_mode",
+            )
 
-    if student_record and active_group == CUSTOMIZED_GROUP:
-        st.markdown("**Choose age group**")
-        selected_age = st.radio(
-            "Choose age group",
-            VISIBLE_AGE_OPTIONS,
-            key="selected_age",
-            label_visibility="collapsed",
-        )
+            if active_group == CUSTOMIZED_GROUP:
+                st.markdown("**Choose age group**")
+                st.radio(
+                    "Choose age group",
+                    VISIBLE_AGE_OPTIONS,
+                    key="selected_age",
+                    label_visibility="collapsed",
+                )
 
-        st.markdown("**Choose system**")
-        selected_system = st.radio(
-            "Choose system",
-            VISIBLE_SYSTEM_OPTIONS,
-            key="selected_system",
-            label_visibility="collapsed",
-        )
-
-        non_custom_instruction = ""
-    elif student_record and active_group == NON_CUSTOMIZED_GROUP:
-        selected_age = "Random"
-        selected_system = "Random"
-
-        st.info("A random case will be generated for this study arm.")
-
-        non_custom_instruction = st.text_input(
-            "Optional instruction",
-            key="non_custom_instruction",
-            help="You can ask the chatbot to switch systems or caregiver, should you wish.",
-        )
-
-        st.caption("You can ask the chatbot to switch systems or caregiver, should you wish.")
-    else:
-        selected_age = "Random"
-        selected_system = "Random"
-        non_custom_instruction = ""
-
-    if student_record and active_group == CUSTOMIZED_GROUP:
-        render_student_progress()
-
-    if st.button("Start new case", use_container_width=True):
-        if not lookup_email:
-            st.warning("Please enter your study email address first.")
-        else:
-            fresh_student_record, fresh_lookup_error = fetch_student_record_by_email(lookup_email)
-            if fresh_lookup_error or not fresh_student_record:
-                st.warning(fresh_lookup_error or "That email address was not found in the students table.")
+                st.markdown("**Choose system**")
+                st.radio(
+                    "Choose system",
+                    VISIBLE_SYSTEM_OPTIONS,
+                    key="selected_system",
+                    label_visibility="collapsed",
+                )
+                st.session_state.non_custom_instruction = ""
             else:
-                try:
-                    study_number = fresh_student_record["study_number"]
-                    study_group = fresh_student_record["study_group"]
+                st.info("A random case will be generated for this study arm.")
+                st.session_state.selected_age = "Random"
+                st.session_state.selected_system = "Random"
+                st.text_input(
+                    "Optional instruction",
+                    key="non_custom_instruction",
+                    help="You can ask the chatbot to switch systems or caregiver, should you wish.",
+                )
+                st.caption("You can ask the chatbot to switch systems or caregiver, should you wish.")
 
-                    use_history_aware_random = (
-                        study_group == CUSTOMIZED_GROUP
-                        and (selected_age == "Random" or selected_system == "Random")
+            start_case = st.form_submit_button("Start new case", use_container_width=True)
+
+        if active_group == CUSTOMIZED_GROUP:
+            render_student_progress()
+
+        if st.button("Change email", use_container_width=True):
+            reset_case_state()
+            st.session_state.entered_email = ""
+            st.rerun()
+
+        if start_case:
+            try:
+                study_number = student_record["study_number"]
+                study_group = student_record["study_group"]
+                selected_age = st.session_state.selected_age
+                selected_system = st.session_state.selected_system
+                non_custom_instruction = st.session_state.non_custom_instruction
+
+                use_history_aware_random = (
+                    study_group == CUSTOMIZED_GROUP
+                    and (selected_age == "Random" or selected_system == "Random")
+                )
+
+                if use_history_aware_random:
+                    resolved_age, resolved_system = choose_novel_random_targets(
+                        study_number,
+                        selected_age,
+                        selected_system,
                     )
-
-                    if use_history_aware_random:
-                        resolved_age, resolved_system = choose_novel_random_targets(
-                            study_number,
-                            selected_age,
-                            selected_system,
-                        )
-                    else:
-                        if study_group == CUSTOMIZED_GROUP:
-                            resolved_age, resolved_system = resolve_random_selection(selected_age, selected_system)
-                        else:
-                            resolved_age, resolved_system = resolve_random_selection("Random", "Random")
-
-                    base_case_data = choose_case_with_history(
-                        requested_system=resolved_system,
-                        study_number=study_number,
-                        avoid_recent_repeat=use_history_aware_random,
-                    )
-                    case_data = apply_dynamic_case_variation(base_case_data, resolved_age)
-
+                else:
                     if study_group == CUSTOMIZED_GROUP:
-                        caregiver_system_prompt = build_history_taking_system_prompt(case_data)
-                        assessor_schema = build_assessor_schema(case_data)
+                        resolved_age, resolved_system = resolve_random_selection(selected_age, selected_system)
                     else:
-                        caregiver_system_prompt = build_non_customized_caregiver_prompt(
-                            case_data,
-                            optional_instruction=non_custom_instruction,
-                        )
-                        assessor_schema = {}
+                        resolved_age, resolved_system = resolve_random_selection("Random", "Random")
 
-                    session_id = str(uuid.uuid4())
+                base_case_data = choose_case_with_history(
+                    requested_system=resolved_system,
+                    study_number=study_number,
+                    avoid_recent_repeat=use_history_aware_random,
+                )
+                case_data = apply_dynamic_case_variation(base_case_data, resolved_age)
 
-                    reset_case_state()
-                    st.session_state.case_data = case_data
-                    st.session_state.caregiver_system_prompt = caregiver_system_prompt
-                    st.session_state.assessor_schema = assessor_schema
-                    st.session_state.current_session_id = session_id
-                    st.session_state.case_started_at = now_iso()
-                    st.session_state.student_email = fresh_student_record["email"]
-                    st.session_state.student_record = fresh_student_record
-                    st.session_state.study_number = study_number
-                    st.session_state.study_group = study_group
-                    st.session_state.resolved_age = resolved_age
-                    st.session_state.resolved_system = resolved_system
-                    st.session_state.transcript_download_name = f"transcript_{study_number}_{session_id}.txt"
-                    st.session_state.active_mode = selected_mode
+                if study_group == CUSTOMIZED_GROUP:
+                    caregiver_system_prompt = build_history_taking_system_prompt(case_data)
+                    assessor_schema = build_assessor_schema(case_data)
+                else:
+                    caregiver_system_prompt = build_non_customized_caregiver_prompt(
+                        case_data,
+                        optional_instruction=non_custom_instruction,
+                    )
+                    assessor_schema = {}
 
-                    if selected_mode == "Text only":
-                        st.session_state.messages = [
-                            {"role": "assistant", "content": case_data["opening_line"]}
-                        ]
+                session_id = str(uuid.uuid4())
 
-                    st.session_state.case_started = True
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Could not generate case: {e}")
+                reset_case_state()
+                st.session_state.case_data = case_data
+                st.session_state.caregiver_system_prompt = caregiver_system_prompt
+                st.session_state.assessor_schema = assessor_schema
+                st.session_state.current_session_id = session_id
+                st.session_state.case_started_at = now_iso()
+                st.session_state.student_email = student_record["email"]
+                st.session_state.student_record = student_record
+                st.session_state.study_number = study_number
+                st.session_state.study_group = study_group
+                st.session_state.resolved_age = resolved_age
+                st.session_state.resolved_system = resolved_system
+                st.session_state.transcript_download_name = f"transcript_{study_number}_{session_id}.txt"
+                st.session_state.active_mode = st.session_state.selected_mode
+                st.session_state.setup_step = "active"
+
+                if st.session_state.selected_mode == "Text only":
+                    st.session_state.messages = [
+                        {"role": "assistant", "content": case_data["opening_line"]}
+                    ]
+
+                st.session_state.case_started = True
+                st.rerun()
+            except Exception as e:
+                st.error(f"Could not generate case: {e}")
 
 # =========================
 # Voice mode
@@ -2258,118 +2267,3 @@ if active_case and st.session_state.presentation_done:
                 mime="text/plain",
                 use_container_width=True,
             )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
