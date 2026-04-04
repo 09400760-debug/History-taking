@@ -1459,6 +1459,8 @@ def reset_case_state():
     st.session_state.student_record = None
     st.session_state.db_save_completed = False
     st.session_state.db_save_stage = "none"
+    st.session_state.last_imported_session_id = None
+    st.session_state.case_started = False
     st.session_state.prior_sessions_loaded = False
 
 
@@ -1519,6 +1521,7 @@ def apply_imported_messages(imported_obj, session_id=None, status_message="Voice
         st.session_state.text_phase = "post_presentation" if st.session_state.presentation_done else "caregiver"
 
     st.session_state.active_mode = "Realtime voice"
+    st.session_state.case_started = True
     set_status("success", status_message)
 
 
@@ -1793,9 +1796,10 @@ defaults = {
     "assessor_schema": {},
     "non_custom_instruction": "",
     "db_save_completed": False,
-    "db_save_stage": "none",
     "prior_sessions_loaded": False,
+    "db_save_stage": "none",
     "last_imported_session_id": None,
+    "case_started": False,
 }
 
 for key, value in defaults.items():
@@ -1860,17 +1864,10 @@ if (
 st.title(APP_TITLE)
 st.info(WELCOME_TEXT)
 
-if st.session_state.case_data or st.session_state.messages:
-    if st.button("Start another case / Back to setup", use_container_width=True):
-        reset_case_state()
-        st.session_state.entered_email = ""
-        clear_return_query_params()
-        st.rerun()
-
 # =========================
 # Setup section
 # =========================
-if not st.session_state.case_data and not st.session_state.messages:
+if not st.session_state.get("case_started", False):
     st.markdown("### Session setup")
 
     entered_email = st.text_input(
@@ -2013,6 +2010,7 @@ if not st.session_state.case_data and not st.session_state.messages:
                     st.session_state.resolved_system = resolved_system
                     st.session_state.transcript_download_name = f"transcript_{study_number}_{session_id}.txt"
                     st.session_state.active_mode = selected_mode
+                    st.session_state.case_started = True
 
                     if selected_mode == "Text only":
                         st.session_state.messages = [
@@ -2027,7 +2025,8 @@ if not st.session_state.case_data and not st.session_state.messages:
 # Voice mode
 # =========================
 if (
-    st.session_state.case_data
+    st.session_state.get("case_started", False)
+    and st.session_state.case_data
     and st.session_state.active_mode == "Realtime voice"
     and not st.session_state.messages
 ):
@@ -2210,6 +2209,12 @@ if st.session_state.presentation_done and st.session_state.messages:
 
 
 
+if st.session_state.case_data or st.session_state.messages:
+    if st.button("Start another case", use_container_width=True):
+        reset_case_state()
+        clear_return_query_params()
+        st.rerun()
+
 # =========================
 # Reflection
 # =========================
@@ -2236,6 +2241,14 @@ if st.session_state.presentation_done:
                 mime="text/plain",
                 use_container_width=True,
             )
+
+
+
+
+
+
+
+
 
 
 
