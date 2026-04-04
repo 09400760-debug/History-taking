@@ -1018,18 +1018,30 @@ def generate_generic_feedback(messages):
     transcript = transcript_from_messages(messages)
 
     prompt = f"""
-You are a helpful clinical tutor.
+You are a helpful clinical tutor reviewing a paediatric history-taking interaction.
 
-Give brief general feedback on this paediatric history-taking interaction.
+IMPORTANT:
+- The STUDENT is the person being assessed.
+- The BOT / assistant is a simulated caregiver and must NOT be assessed.
+- Do NOT comment on how well the assistant, chatbot, caregiver, or bot performed.
+- Do NOT use phrases such as "the assistant did..." or "the bot should..."
+- Address the student directly as "you".
+- Evaluate only the student's history-taking, communication, structure, and relevance of questions.
 
-Focus on:
-- two or three strengths
-- two or three areas for improvement
+Write feedback using exactly these 2 headings:
 
-Do NOT use any rubric.
+Strengths:
+- ...
+
+Areas for improvement:
+- ...
+
+Keep it concise, practical, and supportive.
+Do NOT use a rubric.
 Do NOT score.
 Do NOT grade.
-Keep it concise, practical, and supportive.
+Do NOT mention diagnosis unless needed for a brief student-focused suggestion.
+If the interaction was brief, say there was limited interaction and then give one or two student-focused suggestions.
 
 Transcript:
 {transcript}
