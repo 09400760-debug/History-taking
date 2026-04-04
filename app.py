@@ -314,7 +314,7 @@ def fetch_student_record_by_email(email: str) -> tuple[Optional[dict], Optional[
     url = f"{str(supabase_url).rstrip('/')}/rest/v1/students"
     params = {
         "select": "*",
-        "email": f"eq.{email}",
+        "email": f"ilike.{email}",
         "limit": "1",
     }
 
