@@ -1458,6 +1458,7 @@ def reset_case_state():
     st.session_state.student_email = ""
     st.session_state.student_record = None
     st.session_state.db_save_completed = False
+    st.session_state.db_save_stage = "none"
     st.session_state.prior_sessions_loaded = False
 
 
@@ -1792,7 +1793,9 @@ defaults = {
     "assessor_schema": {},
     "non_custom_instruction": "",
     "db_save_completed": False,
+    "db_save_stage": "none",
     "prior_sessions_loaded": False,
+    "last_imported_session_id": None,
 }
 
 for key, value in defaults.items():
@@ -1856,6 +1859,13 @@ if (
 # =========================
 st.title(APP_TITLE)
 st.info(WELCOME_TEXT)
+
+if st.session_state.case_data or st.session_state.messages:
+    if st.button("Start another case / Back to setup", use_container_width=True):
+        reset_case_state()
+        st.session_state.entered_email = ""
+        clear_return_query_params()
+        st.rerun()
 
 # =========================
 # Setup section
@@ -2200,12 +2210,6 @@ if st.session_state.presentation_done and st.session_state.messages:
 
 
 
-if st.session_state.case_data or st.session_state.messages:
-    if st.button("Start another case", use_container_width=True):
-        reset_case_state()
-        clear_return_query_params()
-        st.rerun()
-
 # =========================
 # Reflection
 # =========================
@@ -2232,6 +2236,13 @@ if st.session_state.presentation_done:
                 mime="text/plain",
                 use_container_width=True,
             )
+
+
+
+
+
+
+
 
 
 
