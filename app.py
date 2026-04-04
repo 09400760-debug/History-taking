@@ -5,6 +5,7 @@ import re
 import urllib.parse
 import uuid
 from datetime import datetime
+from typing import Optional
 
 import requests
 import streamlit as st
@@ -263,6 +264,101 @@ def normalize_text(text: str) -> str:
 
 def now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
+
+
+def normalize_email(email: str | None) -> str:
+    return str(email or "").strip().lower()
+
+
+def is_valid_email(email: str | None) -> bool:
+    value = normalize_email(email)
+    return bool(re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", value))
+
+
+def get_student_lookup_headers() -> dict:
+    supabase_key = st.secrets.get("SUPABASE_ANON_KEY") or st.secrets.get("SUPABASE_KEY")
+    return {
+        "apikey": supabase_key,
+        "Authorization": f"Bearer {supabase_key}",
+        "Accept": "application/json",
+    }
+
+
+def map_group_name_to_internal(value: str | None) -> str | None:
+    raw = normalize_text(value or "")
+    if not raw:
+        return None
+    collapsed = raw.replace("-", " ").replace("_", " ")
+    if "non" in collapsed and "custom" in collapsed:
+        return NON_CUSTOMIZED_GROUP
+    if "custom" in collapsed:
+        return CUSTOMIZED_GROUP
+    if collapsed in {"control", "generic", "standard"}:
+        return NON_CUSTOMIZED_GROUP
+    if collapsed in {"intervention", "customised", "customized bot"}:
+        return CUSTOMIZED_GROUP
+    return None
+
+
+def fetch_student_record_by_email(email: str) -> tuple[Optional[dict], Optional[str]]:
+    email = normalize_email(email)
+    if not is_valid_email(email):
+        return None, "Please enter a valid email address."
+
+    supabase_url = st.secrets.get("SUPABASE_URL")
+    supabase_key = st.secrets.get("SUPABASE_ANON_KEY") or st.secrets.get("SUPABASE_KEY")
+
+    if not supabase_url or not supabase_key:
+        return None, "Supabase credentials are missing from Streamlit secrets. Add SUPABASE_URL and SUPABASE_ANON_KEY."
+
+    url = f"{str(supabase_url).rstrip('/')}/rest/v1/students"
+    params = {
+        "select": "*",
+        "email": f"eq.{email}",
+        "limit": "1",
+    }
+
+    try:
+        response = requests.get(url, headers=get_student_lookup_headers(), params=params, timeout=20)
+    except Exception as e:
+        return None, f"Could not connect to Supabase: {e}"
+
+    if response.status_code != 200:
+        try:
+            detail = response.json()
+        except Exception:
+            detail = response.text
+        return None, f"Supabase student lookup failed: {detail}"
+
+    try:
+        rows = response.json()
+    except Exception as e:
+        return None, f"Supabase returned unreadable data: {e}"
+
+    if not rows:
+        return None, "That email address was not found in the students table."
+
+    row = rows[0] or {}
+    study_number = str(row.get("study_number") or row.get("study-number") or "").strip()
+    group_name = (
+        row.get("group_name")
+        or row.get("group-name")
+        or row.get("group")
+        or row.get("arm")
+        or ""
+    )
+
+    derived_group = map_group_name_to_internal(group_name) or get_study_group(study_number)
+
+    return {
+        "id": row.get("id"),
+        "email": normalize_email(row.get("email") or email),
+        "study_number": study_number,
+        "group_name": str(group_name or "").strip(),
+        "study_group": derived_group,
+        "created_at": row.get("created_at") or row.get("created-at"),
+        "raw": row,
+    }, None
 
 
 def parse_iso(value: str | None):
@@ -1278,6 +1374,7 @@ def build_voice_url(session_id: str):
         "case_data_json": json.dumps(make_json_safe(st.session_state.case_data)),
         "session_id": session_id,
         "study_number": st.session_state.study_number,
+        "student_email": st.session_state.student_email,
         "interaction_mode": st.session_state.active_mode,
         "study_group": st.session_state.study_group,
         "return_url": STREAMLIT_APP_URL,
@@ -1328,6 +1425,8 @@ def reset_case_state():
     st.session_state.caregiver_system_prompt = ""
     st.session_state.assessor_schema = {}
     st.session_state.study_group = CUSTOMIZED_GROUP
+    st.session_state.student_email = ""
+    st.session_state.student_record = None
     st.session_state.db_save_completed = False
     st.session_state.prior_sessions_loaded = False
 
@@ -1351,6 +1450,8 @@ def apply_imported_messages(imported_obj, session_id=None, status_message="Voice
         st.session_state.resolved_system = raw_payload.get("system")
     if raw_payload.get("study_number"):
         st.session_state.study_number = raw_payload.get("study_number")
+    if raw_payload.get("student_email"):
+        st.session_state.student_email = normalize_email(raw_payload.get("student_email"))
 
     imported_group = raw_payload.get("study_group")
     if imported_group in {CUSTOMIZED_GROUP, NON_CUSTOMIZED_GROUP}:
@@ -1394,6 +1495,7 @@ def apply_imported_messages(imported_obj, session_id=None, status_message="Voice
 
 def build_transcript_text():
     header = [
+        f"Student email: {st.session_state.student_email or 'Not recorded'}",
         f"Study number: {st.session_state.study_number or 'Not recorded'}",
         f"Study group: {st.session_state.study_group or 'Not recorded'}",
         f"Start {format_hhmm(st.session_state.case_started_at)}",
@@ -1409,6 +1511,7 @@ def build_transcript_text():
 
 def build_reflection_text():
     lines = [
+        f"Student email: {st.session_state.student_email or 'Not recorded'}",
         f"Study number: {st.session_state.study_number or 'Not recorded'}",
         f"Study group: {st.session_state.study_group or 'Not recorded'}",
         f"Recorded at: {now_iso()}",
@@ -1643,6 +1746,9 @@ defaults = {
     "active_mode": None,
     "study_number": None,
     "study_group": CUSTOMIZED_GROUP,
+    "student_email": "",
+    "student_record": None,
+    "entered_email": "",
     "last_voice_import_status": None,
     "study_number_confirmed": False,
     "case_started_at": None,
@@ -1718,36 +1824,46 @@ st.info(WELCOME_TEXT)
 if not st.session_state.case_data and not st.session_state.messages:
     st.markdown("### Session setup")
 
-    selected_study_number = st.selectbox(
-        "Choose study number",
-        STUDY_NUMBER_OPTIONS,
-        key="selected_study_number",
+    entered_email = st.text_input(
+        "Enter your study email address",
+        key="entered_email",
+        help="Use the email address that was loaded into the students table.",
     )
 
-    study_group_preview = get_study_group(selected_study_number)
+    lookup_email = normalize_email(entered_email)
+    student_record = None
+    lookup_error = None
 
-    if selected_study_number != "Please select study number":
-        st.markdown(f"**Study number selected:** {selected_study_number}")
-        st.markdown(
-            f"**Study arm:** {'Customized bot' if study_group_preview == CUSTOMIZED_GROUP else 'Non-customized bot'}"
-        )
-        confirm_checkbox = st.checkbox(
-            "Please confirm this is your study number",
-            key="study_number_confirm_checkbox",
-        )
-        st.session_state.study_number_confirmed = bool(confirm_checkbox)
-    else:
-        st.session_state.study_number_confirmed = False
+    if lookup_email:
+        student_record, lookup_error = fetch_student_record_by_email(lookup_email)
+        if student_record:
+            st.session_state.student_record = student_record
+            st.session_state.student_email = student_record["email"]
+            st.session_state.study_number = student_record["study_number"]
+            st.session_state.study_group = student_record["study_group"]
+        else:
+            st.session_state.student_record = None
+            st.session_state.student_email = lookup_email
+            st.session_state.study_number = None
+            st.session_state.study_group = CUSTOMIZED_GROUP
 
-    st.markdown("**Choose interaction mode**")
+    if student_record:
+        arm_label = "Customized bot" if student_record["study_group"] == CUSTOMIZED_GROUP else "Non-customized bot"
+        st.success(f"Email found. Study number: {student_record['study_number']} | Study arm: {arm_label}")
+        if student_record.get("group_name"):
+            st.caption(f"Group name in table: {student_record['group_name']}")
+    elif lookup_email and lookup_error:
+        st.warning(lookup_error)
+
     selected_mode = st.radio(
         "Choose interaction mode",
         VISIBLE_INTERACTION_MODES,
         key="selected_mode",
-        label_visibility="collapsed",
     )
 
-    if study_group_preview == CUSTOMIZED_GROUP:
+    active_group = student_record["study_group"] if student_record else CUSTOMIZED_GROUP
+
+    if student_record and active_group == CUSTOMIZED_GROUP:
         st.markdown("**Choose age group**")
         selected_age = st.radio(
             "Choose age group",
@@ -1765,7 +1881,7 @@ if not st.session_state.case_data and not st.session_state.messages:
         )
 
         non_custom_instruction = ""
-    else:
+    elif student_record and active_group == NON_CUSTOMIZED_GROUP:
         selected_age = "Random"
         selected_system = "Random"
 
@@ -1778,78 +1894,85 @@ if not st.session_state.case_data and not st.session_state.messages:
         )
 
         st.caption("You can ask the chatbot to switch systems or caregiver, should you wish.")
+    else:
+        selected_age = "Random"
+        selected_system = "Random"
+        non_custom_instruction = ""
 
-    if selected_study_number != "Please select study number" and study_group_preview == CUSTOMIZED_GROUP:
-        st.session_state.study_number = selected_study_number
-        st.session_state.study_group = study_group_preview
+    if student_record and active_group == CUSTOMIZED_GROUP:
         render_student_progress()
 
     if st.button("Start new case", use_container_width=True):
-        if selected_study_number == "Please select study number":
-            st.warning("Please select a study number first.")
-        elif not st.session_state.study_number_confirmed:
-            st.warning("Please confirm the study number before starting.")
+        if not lookup_email:
+            st.warning("Please enter your study email address first.")
         else:
-            try:
-                study_group = get_study_group(selected_study_number)
+            fresh_student_record, fresh_lookup_error = fetch_student_record_by_email(lookup_email)
+            if fresh_lookup_error or not fresh_student_record:
+                st.warning(fresh_lookup_error or "That email address was not found in the students table.")
+            else:
+                try:
+                    study_number = fresh_student_record["study_number"]
+                    study_group = fresh_student_record["study_group"]
 
-                use_history_aware_random = (
-                    study_group == CUSTOMIZED_GROUP
-                    and (selected_age == "Random" or selected_system == "Random")
-                )
-
-                if use_history_aware_random:
-                    resolved_age, resolved_system = choose_novel_random_targets(
-                        selected_study_number,
-                        selected_age,
-                        selected_system,
+                    use_history_aware_random = (
+                        study_group == CUSTOMIZED_GROUP
+                        and (selected_age == "Random" or selected_system == "Random")
                     )
-                else:
-                    if study_group == CUSTOMIZED_GROUP:
-                        resolved_age, resolved_system = resolve_random_selection(selected_age, selected_system)
+
+                    if use_history_aware_random:
+                        resolved_age, resolved_system = choose_novel_random_targets(
+                            study_number,
+                            selected_age,
+                            selected_system,
+                        )
                     else:
-                        resolved_age, resolved_system = resolve_random_selection("Random", "Random")
+                        if study_group == CUSTOMIZED_GROUP:
+                            resolved_age, resolved_system = resolve_random_selection(selected_age, selected_system)
+                        else:
+                            resolved_age, resolved_system = resolve_random_selection("Random", "Random")
 
-                base_case_data = choose_case_with_history(
-                    requested_system=resolved_system,
-                    study_number=selected_study_number,
-                    avoid_recent_repeat=use_history_aware_random,
-                )
-                case_data = apply_dynamic_case_variation(base_case_data, resolved_age)
-
-                if study_group == CUSTOMIZED_GROUP:
-                    caregiver_system_prompt = build_history_taking_system_prompt(case_data)
-                    assessor_schema = build_assessor_schema(case_data)
-                else:
-                    caregiver_system_prompt = build_non_customized_caregiver_prompt(
-                        case_data,
-                        optional_instruction=non_custom_instruction,
+                    base_case_data = choose_case_with_history(
+                        requested_system=resolved_system,
+                        study_number=study_number,
+                        avoid_recent_repeat=use_history_aware_random,
                     )
-                    assessor_schema = {}
+                    case_data = apply_dynamic_case_variation(base_case_data, resolved_age)
 
-                session_id = str(uuid.uuid4())
+                    if study_group == CUSTOMIZED_GROUP:
+                        caregiver_system_prompt = build_history_taking_system_prompt(case_data)
+                        assessor_schema = build_assessor_schema(case_data)
+                    else:
+                        caregiver_system_prompt = build_non_customized_caregiver_prompt(
+                            case_data,
+                            optional_instruction=non_custom_instruction,
+                        )
+                        assessor_schema = {}
 
-                reset_case_state()
-                st.session_state.case_data = case_data
-                st.session_state.caregiver_system_prompt = caregiver_system_prompt
-                st.session_state.assessor_schema = assessor_schema
-                st.session_state.current_session_id = session_id
-                st.session_state.case_started_at = now_iso()
-                st.session_state.study_number = selected_study_number
-                st.session_state.study_group = study_group
-                st.session_state.resolved_age = resolved_age
-                st.session_state.resolved_system = resolved_system
-                st.session_state.transcript_download_name = f"transcript_{selected_study_number}_{session_id}.txt"
-                st.session_state.active_mode = selected_mode
+                    session_id = str(uuid.uuid4())
 
-                if selected_mode == "Text only":
-                    st.session_state.messages = [
-                        {"role": "assistant", "content": case_data["opening_line"]}
-                    ]
+                    reset_case_state()
+                    st.session_state.case_data = case_data
+                    st.session_state.caregiver_system_prompt = caregiver_system_prompt
+                    st.session_state.assessor_schema = assessor_schema
+                    st.session_state.current_session_id = session_id
+                    st.session_state.case_started_at = now_iso()
+                    st.session_state.student_email = fresh_student_record["email"]
+                    st.session_state.student_record = fresh_student_record
+                    st.session_state.study_number = study_number
+                    st.session_state.study_group = study_group
+                    st.session_state.resolved_age = resolved_age
+                    st.session_state.resolved_system = resolved_system
+                    st.session_state.transcript_download_name = f"transcript_{study_number}_{session_id}.txt"
+                    st.session_state.active_mode = selected_mode
 
-                st.rerun()
-            except Exception as e:
-                st.error(f"Could not generate case: {e}")
+                    if selected_mode == "Text only":
+                        st.session_state.messages = [
+                            {"role": "assistant", "content": case_data["opening_line"]}
+                        ]
+
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Could not generate case: {e}")
 
 # =========================
 # Voice mode
@@ -1888,8 +2011,9 @@ elif isinstance(status_value, str) and status_value.strip():
 # Study arm display
 # =========================
 if st.session_state.case_data:
+    arm_text = 'Customized bot' if st.session_state.study_group == CUSTOMIZED_GROUP else 'Non-customized bot'
     st.caption(
-        f"Study arm: {'Customized bot' if st.session_state.study_group == CUSTOMIZED_GROUP else 'Non-customized bot'}"
+        f"Student email: {st.session_state.student_email or 'Not recorded'} | Study number: {st.session_state.study_number or 'Not recorded'} | Study arm: {arm_text}"
     )
 
 # =========================
@@ -2051,4 +2175,6 @@ if st.session_state.presentation_done:
                 mime="text/plain",
                 use_container_width=True,
             )
+
+
 
