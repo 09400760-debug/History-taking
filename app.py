@@ -1428,6 +1428,12 @@ def clear_return_query_params():
             pass
 
 
+
+
+def has_active_case() -> bool:
+    return bool(st.session_state.get("case_started", False) and st.session_state.get("case_data") is not None)
+
+
 def set_status(level: str, message: str):
     st.session_state.last_voice_import_status = {"level": level, "message": message}
 
@@ -1864,18 +1870,6 @@ if (
 st.title(APP_TITLE)
 st.info(WELCOME_TEXT)
 
-# Clear any stale case state before showing setup
-if (
-    not st.session_state.get("case_started", False)
-    and import_voice_flag != "1"
-    and (
-        st.session_state.get("case_data") is not None
-        or st.session_state.get("messages")
-        or st.session_state.get("current_session_id")
-    )
-):
-    reset_case_state()
-
 # =========================
 # Setup section
 # =========================
@@ -2070,7 +2064,7 @@ elif isinstance(status_value, str) and status_value.strip():
 # =========================
 # Study arm display
 # =========================
-if st.session_state.get("case_started", False) and st.session_state.case_data:
+if has_active_case():
     arm_text = 'Customized bot' if st.session_state.study_group == CUSTOMIZED_GROUP else 'Non-customized bot'
     st.caption(
         f"Student email: {st.session_state.student_email or 'Not recorded'} | Study number: {st.session_state.study_number or 'Not recorded'} | Study arm: {arm_text}"
@@ -2079,19 +2073,14 @@ if st.session_state.get("case_started", False) and st.session_state.case_data:
 # =========================
 # Progress display during active customized sessions
 # =========================
-if (
-    st.session_state.get("case_started", False)
-    and st.session_state.study_group == CUSTOMIZED_GROUP
-    and st.session_state.study_number
-    and st.session_state.case_data
-):
+if has_active_case() and st.session_state.study_group == CUSTOMIZED_GROUP and st.session_state.study_number:
     render_student_progress()
 
 # =========================
 # Conversation display
 # =========================
 show_live_transcript = (
-    st.session_state.case_data
+    has_active_case() and st.session_state.case_data
     and not st.session_state.presentation_done
     and st.session_state.active_mode == "Text only"
 )
@@ -2106,7 +2095,7 @@ if show_live_transcript:
 # Non-customized text hint
 # =========================
 if (
-    st.session_state.get("case_started", False)
+    has_active_case()
     and st.session_state.case_data
     and st.session_state.active_mode == "Text only"
     and st.session_state.study_group == NON_CUSTOMIZED_GROUP
@@ -2118,7 +2107,7 @@ if (
 # Text mode
 # =========================
 if (
-    st.session_state.get("case_started", False)
+    has_active_case()
     and st.session_state.case_data
     and st.session_state.active_mode == "Text only"
     and st.session_state.mode != "post_presentation"
@@ -2159,7 +2148,7 @@ elif st.session_state.messages and not st.session_state.case_data:
 # =========================
 # Feedback
 # =========================
-if st.session_state.get("case_started", False) and st.session_state.presentation_done and st.session_state.study_group == CUSTOMIZED_GROUP:
+if has_active_case() and st.session_state.presentation_done and st.session_state.study_group == CUSTOMIZED_GROUP:
     st.markdown("### Feedback")
 
     if not st.session_state.brief_assessment_generated:
@@ -2195,7 +2184,7 @@ if st.session_state.get("case_started", False) and st.session_state.presentation
 # =========================
 # Non-customized completion note and feedback
 # =========================
-if st.session_state.get("case_started", False) and st.session_state.presentation_done and st.session_state.study_group == NON_CUSTOMIZED_GROUP:
+if has_active_case() and st.session_state.presentation_done and st.session_state.study_group == NON_CUSTOMIZED_GROUP:
     if not st.session_state.db_save_completed:
         save_session_to_db()
 
@@ -2210,7 +2199,7 @@ if st.session_state.get("case_started", False) and st.session_state.presentation
 # =========================
 # Transcript tools
 # =========================
-if st.session_state.get("case_started", False) and st.session_state.presentation_done and st.session_state.messages:
+if has_active_case() and st.session_state.presentation_done and st.session_state.messages:
     st.markdown("### Transcript")
 
     with st.expander("View transcript", expanded=False):
@@ -2228,7 +2217,7 @@ if st.session_state.get("case_started", False) and st.session_state.presentation
 
 
 
-if st.session_state.get("case_started", False) or st.session_state.case_data or st.session_state.messages:
+if has_active_case() or st.session_state.messages:
     if st.button("Start another case", use_container_width=True):
         reset_case_state()
         clear_return_query_params()
@@ -2237,7 +2226,7 @@ if st.session_state.get("case_started", False) or st.session_state.case_data or 
 # =========================
 # Reflection
 # =========================
-if st.session_state.get("case_started", False) and st.session_state.presentation_done:
+if has_active_case() and st.session_state.presentation_done:
     st.markdown("### Reflection")
 
     if not st.session_state.show_reflection_box:
@@ -2260,6 +2249,35 @@ if st.session_state.get("case_started", False) and st.session_state.presentation
                 mime="text/plain",
                 use_container_width=True,
             )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
