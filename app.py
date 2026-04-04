@@ -1471,6 +1471,7 @@ def apply_imported_messages(imported_obj, session_id=None, status_message="Voice
     st.session_state.brief_assessment_generated = None
     st.session_state.detailed_assessment_generated = None
     st.session_state.db_save_completed = False
+    st.session_state.case_started = True
 
     raw_payload = imported_obj.get("raw_payload") or {}
     st.session_state.case_started_at = raw_payload.get("started_at") or st.session_state.case_started_at
@@ -1521,7 +1522,6 @@ def apply_imported_messages(imported_obj, session_id=None, status_message="Voice
         st.session_state.text_phase = "post_presentation" if st.session_state.presentation_done else "caregiver"
 
     st.session_state.active_mode = "Realtime voice"
-    st.session_state.case_started = True
     set_status("success", status_message)
 
 
@@ -2010,13 +2010,13 @@ if not st.session_state.get("case_started", False):
                     st.session_state.resolved_system = resolved_system
                     st.session_state.transcript_download_name = f"transcript_{study_number}_{session_id}.txt"
                     st.session_state.active_mode = selected_mode
-                    st.session_state.case_started = True
 
                     if selected_mode == "Text only":
                         st.session_state.messages = [
                             {"role": "assistant", "content": case_data["opening_line"]}
                         ]
 
+                    st.session_state.case_started = True
                     st.rerun()
                 except Exception as e:
                     st.error(f"Could not generate case: {e}")
@@ -2241,6 +2241,13 @@ if st.session_state.presentation_done:
                 mime="text/plain",
                 use_container_width=True,
             )
+
+
+
+
+
+
+
 
 
 
