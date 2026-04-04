@@ -1865,18 +1865,21 @@ st.title(APP_TITLE)
 st.info(WELCOME_TEXT)
 
 active_case = bool(st.session_state.get("case_started", False) and st.session_state.case_data is not None)
-
-if not st.session_state.get("case_started", False) and st.session_state.case_data is not None:
-    st.session_state.case_data = None
-    st.session_state.messages = []
-    st.session_state.current_session_id = None
+if not active_case:
+    # Prevent stale lower-page sections from rendering while the user is still on setup
     st.session_state.presentation_done = False
     st.session_state.mode = "caregiver"
-    st.session_state.text_phase = "caregiver"
-    st.session_state.active_mode = None
-    st.session_state.caregiver_system_prompt = ""
-    st.session_state.assessor_schema = {}
-    active_case = False
+    if not st.session_state.get("case_started", False):
+        st.session_state.messages = []
+        st.session_state.case_data = None
+        st.session_state.current_session_id = None
+        st.session_state.active_mode = None
+        st.session_state.brief_assessment_generated = None
+        st.session_state.detailed_assessment_generated = None
+        st.session_state.generic_feedback = None
+        st.session_state.case_ended_at = None
+        st.session_state.db_save_completed = False
+        st.session_state.db_save_stage = "none"
 
 # =========================
 # Setup section
@@ -2255,6 +2258,35 @@ if active_case and st.session_state.presentation_done:
                 mime="text/plain",
                 use_container_width=True,
             )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
