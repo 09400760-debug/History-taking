@@ -134,6 +134,7 @@ VISIBLE_SYSTEM_OPTIONS = [
     "Random",
     "Cardiovascular",
     "Gastrointestinal",
+    "General Paediatrics",
     "Musculoskeletal",
     "Neurological",
     "Renal",
@@ -151,6 +152,7 @@ RANDOM_AGE_POOL = [
 RANDOM_SYSTEM_POOL = [
     "Cardiovascular",
     "Gastrointestinal",
+    "General Paediatrics",
     "Musculoskeletal",
     "Neurological",
     "Renal",
@@ -718,9 +720,22 @@ def age_group_from_months(age_months: int) -> str:
 
 
 def case_matches_age_group(case_data: dict, age_group: str) -> bool:
-    age_months = int(case_data.get("age_months", 0))
-    min_m, max_m = age_group_to_month_range(age_group)
-    return min_m <= age_months <= max_m
+    try:
+        age_months = int(case_data.get("age_months", -1))
+    except Exception:
+        return False
+
+    if age_group == "Neonate":
+        return age_months <= 1
+    if age_group == "Infant":
+        return 2 <= age_months <= 11
+    if age_group == "1-5 years":
+        return 12 <= age_months <= 71
+    if age_group == "6-10 years":
+        return 72 <= age_months <= 131
+    if age_group == "11-19 years":
+        return 132 <= age_months <= 228
+    return True
 
 
 def get_available_systems_for_age(age_group: str) -> list[str]:
@@ -2283,5 +2298,6 @@ if active_case and st.session_state.presentation_done:
                 mime="text/plain",
                 use_container_width=True,
             )
+
 
 
