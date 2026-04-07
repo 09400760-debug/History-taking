@@ -458,6 +458,35 @@ def resolve_random_selection(selected_age: str, selected_system: str):
     return resolved_age, resolved_system
 
 
+def age_group_to_month_range(age_group: str) -> tuple[int, int]:
+    mapping = {
+        "Neonate": (0, 1),
+        "Infant": (2, 11),
+        "1-5 years": (12, 71),
+        "6-10 years": (72, 131),
+        "11-19 years": (132, 228),
+    }
+    return mapping.get(age_group, (0, 228))
+
+
+def age_group_from_months(age_months: int) -> str:
+    if age_months <= 1:
+        return "Neonate"
+    if age_months <= 11:
+        return "Infant"
+    if age_months <= 71:
+        return "1-5 years"
+    if age_months <= 131:
+        return "6-10 years"
+    return "11-19 years"
+
+
+def case_matches_age_group(case_data: dict, age_group: str) -> bool:
+    age_months = int(case_data.get("age_months", 0))
+    min_m, max_m = age_group_to_month_range(age_group)
+    return min_m <= age_months <= max_m
+
+
 def transcript_from_messages(messages):
     return "\n".join([f'{m["role"]}: {m["content"]}' for m in messages])
 
@@ -692,206 +721,178 @@ def choose_novel_random_targets(study_number: str, selected_age: str, selected_s
     return resolved_age, resolved_system
 
 
-def choose_case_with_history(requested_system: str, study_number: str | None = None, avoid_recent_repeat: bool = False) -> dict:
-    if not avoid_recent_repeat or not study_number or get_study_group(study_number) != CUSTOMIZED_GROUP:
-        return choose_case(requested_system=requested_system)
+def choose_case_with_age_and_history(
+    requested_system: str,
+    requested_age_group: str,
+    study_number: str | None = None,
+    avoid_recent_repeat: bool = False,
+) -> dict:
+    from dynamic_rubric import COMMON_SA_CASE_BANK, _enrich_case
 
-    sessions = get_recent_customized_sessions(study_number, limit=8)
-    recent_diagnoses = {
-        str(s.get("diagnosis", "")).strip().lower()
-        for s in sessions
-        if s.get("diagnosis")
-    }
+    candidates = COMMON_SA_CASE_BANK[:]
 
-    best_case = None
-    for _ in range(24):
-        candidate = choose_case(requested_system=requested_system)
-        diagnosis = extract_case_diagnosis(candidate).lower()
-        if diagnosis and diagnosis not in recent_diagnoses:
-            return candidate
-        best_case = candidate
+    if requested_system and requested_system != "Random":
+        candidates = [
+            c for c in candidates
+            if str(c.get("system", "")).strip().lower() == requested_system.strip().lower()
+        ]
 
-    return best_case or choose_case(requested_system=requested_system)
+    if requested_age_group and requested_age_group != "Random":
+        candidates = [
+            c for c in candidates
+            if case_matches_age_group(c, requested_age_group)
+        ]
+
+    if not candidates:
+        candidates = COMMON_SA_CASE_BANK[:]
+        if requested_system and requested_system != "Random":
+            candidates = [
+                c for c in candidates
+                if str(c.get("system", "")).strip().lower() == requested_system.strip().lower()
+            ]
+
+    if avoid_recent_repeat and study_number and get_study_group(study_number) == CUSTOMIZED_GROUP:
+        sessions = get_recent_customized_sessions(study_number, limit=8)
+        recent_diagnoses = {
+            str(s.get("diagnosis", "")).strip().lower()
+            for s in sessions
+            if s.get("diagnosis")
+        }
+        filtered = [
+            c for c in candidates
+            if str(c.get("expected_diagnosis", "")).strip().lower() not in recent_diagnoses
+        ]
+        if filtered:
+            candidates = filtered
+
+    chosen = random.choice(candidates)
+    return _enrich_case(chosen)
 
 
-def generate_age_string(age_group: str) -> str:
-    if age_group == "Neonate":
+def generate_case_consistent_age_string(age_months: int) -> str:
+    if age_months <= 1:
         days = random.randint(2, 27)
         return f"{days} days"
-    if age_group == "Infant":
-        months = random.randint(2, 11)
-        return f"{months} months"
-    if age_group == "1-5 years":
-        years = random.randint(1, 5)
+
+    if 2 <= age_months <= 11:
+        low = max(2, age_months - 2)
+        high = min(11, age_months + 2)
+        return f"{random.randint(low, high)} months"
+
+    if 12 <= age_months <= 71:
+        years = max(1, min(5, round(age_months / 12)))
         return f"{years} years"
-    if age_group == "6-10 years":
-        years = random.randint(6, 10)
+
+    if 72 <= age_months <= 131:
+        years = max(6, min(10, round(age_months / 12)))
         return f"{years} years"
-    if age_group == "11-19 years":
-        years = random.randint(11, 17)
-        return f"{years} years"
-    return random.choice(["8 months", "2 years", "7 years", "14 years"])
+
+    years = max(11, min(17, round(age_months / 12)))
+    return f"{years} years"
 
 
-def build_presenting_complaint_variant(diagnosis: str, age_group: str, original: str) -> str:
-    d = normalize_text(diagnosis)
-    original = str(original or "").strip()
+def build_presenting_complaint_variant(case_data: dict) -> str:
+    diagnosis = normalize_text(case_data.get("expected_diagnosis", ""))
+    age_months = int(case_data.get("age_months", 0))
+    original_context = str(case_data.get("context", "")).strip()
 
-    variants = {
-        "rickets": [
-            "my child has started walking strangely and the legs look bent",
-            "my child is not standing properly and the legs seem bowed",
-            "my child seems weak and is not walking the way I expected",
-        ],
-        "asthma": [
-            "my child has been coughing and breathing with difficulty",
-            "my child is wheezing and struggling to breathe",
-            "my child gets tight-chested and short of breath",
-        ],
-        "pneumonia": [
-            "my child has fever, cough, and fast breathing",
-            "my child is coughing badly and breathing quickly",
-            "my child has been unwell with fever and difficulty breathing",
-        ],
-        "bronchiolitis": [
+    if "rickets" in diagnosis:
+        if age_months < 12:
+            return random.choice([
+                "my baby seems weak and not as strong as I expected",
+                "my baby is not pushing up and moving strongly like I expected",
+                "my baby feels weak and I am worried about the legs",
+            ])
+        elif age_months < 36:
+            return random.choice([
+                "my child seems weak and the legs do not look right",
+                "my child is not standing well and the legs look bent",
+                "my child seems weak and the legs look bowed",
+            ])
+        else:
+            return random.choice([
+                "my child has bowed legs and seems weak",
+                "my child is walking strangely and the legs look bent",
+                "my child seems weak and the legs look bowed",
+            ])
+
+    if "bronchiolitis" in diagnosis:
+        return random.choice([
             "the baby has cough, noisy breathing, and is feeding poorly",
             "the baby has a chesty cough and is breathing fast",
-            "the baby seems blocked up, coughs a lot, and is not feeding well",
-        ],
-        "gastroenteritis": [
-            "my child has diarrhoea and vomiting",
-            "my child has been vomiting and has loose stools",
-            "my child has a runny tummy and keeps vomiting",
-        ],
-        "dehydration": [
-            "my child has been vomiting and now seems very weak",
-            "my child is not drinking well and looks dry",
-            "my child has become floppy after diarrhoea and vomiting",
-        ],
-        "uti": [
-            "my child has fever and cries when passing urine",
-            "my child has had fever and seems uncomfortable when urinating",
-            "my child has fever and urine problems",
-        ],
-        "urinary tract infection": [
-            "my child has fever and cries when passing urine",
-            "my child has had fever and seems uncomfortable when urinating",
-            "my child has fever and urine problems",
-        ],
-        "pyelonephritis": [
-            "my child has fever and looks very unwell with urine problems",
-            "my child has high fever and seems uncomfortable when passing urine",
-            "my child has fever, vomiting, and I think there is a urine problem",
-        ],
-        "febrile seizure": [
-            "my child had a fit with a fever",
-            "my child became stiff and jerky while having fever",
-            "my child had a seizure when the temperature was high",
-        ],
-        "epilepsy": [
-            "my child has had repeated fits",
-            "my child keeps having seizure-like episodes",
-            "my child has been having recurrent convulsions",
-        ],
-        "meningitis": [
-            "my child has fever and is very sleepy and irritable",
-            "my child is feverish and not responding normally",
-            "my child has fever and is behaving strangely",
-        ],
-        "appendicitis": [
-            "my child has stomach pain and vomiting",
-            "my child has bad pain on the right side of the tummy",
-            "my child has tummy pain that is getting worse",
-        ],
-        "constipation": [
-            "my child struggles to pass stool and complains of tummy pain",
-            "my child has not been opening the bowels properly",
-            "my child has hard stools and abdominal pain",
-        ],
-        "nephrotic": [
-            "my child has become swollen around the eyes and body",
-            "my child is puffy, especially around the eyes",
-            "my child has swelling that worries me",
-        ],
-        "nephritic": [
-            "my child has swelling and the urine looks dark",
-            "my child is swollen and passing tea-coloured urine",
-            "my child has facial swelling and dark urine",
-        ],
-        "malnutrition": [
-            "my child is losing weight and seems weak",
-            "my child is not growing well and looks thin",
-            "my child has become wasted and has poor appetite",
-        ],
-        "croup": [
-            "my child has a barking cough and noisy breathing",
-            "my child woke up with a harsh cough and noisy breathing",
-            "my child has a strange barking cough",
-        ],
-        "foreign body aspiration": [
+            "the baby is coughing, struggling to breathe, and not feeding well",
+        ])
+
+    if "pertussis" in diagnosis:
+        return random.choice([
+            "the baby has bad coughing bouts and sometimes vomits after coughing",
+            "the baby coughs in long attacks and throws up afterwards",
+            "the baby has severe coughing fits and vomits after them",
+        ])
+
+    if "foreign body aspiration" in diagnosis:
+        return random.choice([
             "my child suddenly started coughing and breathing badly",
             "my child choked and since then the breathing has not been normal",
             "my child suddenly became short of breath while eating",
-        ],
-        "congenital heart disease": [
-            "my child gets tired easily and breathes fast",
-            "my child is not feeding well and breathes quickly",
-            "my child becomes sweaty and breathless easily",
-        ],
-        "dysentery": [
-            "my child has diarrhoea with blood in it",
-            "my child has been passing loose stools with blood",
-            "there is blood in the diarrhoea",
-        ],
-    }
+        ])
 
-    for key, options in variants.items():
-        if key in d:
-            return random.choice(options)
+    if "gastro-oesophageal reflux" in diagnosis or "reflux" in diagnosis:
+        return random.choice([
+            "my baby keeps vomiting after feeds and is not gaining weight well",
+            "my baby brings up milk after feeds and is not growing well",
+            "my baby vomits often after feeds and seems not to be gaining enough weight",
+        ])
 
-    if original:
-        generic_from_original = [
-            original,
-            f"my child has been having {original.lower()}",
-            f"there has been a problem with {original.lower()}",
-        ]
-        return random.choice(generic_from_original)
+    if "acyanotic congenital heart disease" in diagnosis or "cardiac failure" in diagnosis:
+        return random.choice([
+            "my baby sweats during feeds, breathes fast, and is not gaining weight well",
+            "my baby gets tired with feeds and breathes quickly",
+            "my baby sweats while feeding and is not growing well",
+        ])
+
+    if "tetralogy" in diagnosis or "cyanotic congenital heart disease" in diagnosis:
+        return random.choice([
+            "my child becomes very blue when upset",
+            "my child has episodes of turning blue, especially when crying",
+            "my child goes blue at times and then crouches afterwards",
+        ])
+
+    if "cerebral palsy" in diagnosis:
+        return random.choice([
+            "my child is stiff in the legs and has struggled with walking",
+            "my child has always been stiff and delayed with walking",
+            "my child has difficulty walking and the legs seem very stiff",
+        ])
+
+    if original_context:
+        cleaned = original_context
+        cleaned = re.sub(r"^[Aa]n?\s+\d+[- ]?(day|month|year)-old\s+", "my child ", cleaned)
+        cleaned = re.sub(r"^[Aa]\s+child\s+", "my child ", cleaned)
+        cleaned = cleaned.strip().rstrip(".")
+        if not cleaned.lower().startswith("my child") and not cleaned.lower().startswith("my baby"):
+            cleaned = f"my child has {cleaned}"
+        return cleaned
 
     return random.choice(GENERIC_PRESENTING_TEMPLATES)
 
 
-def build_opening_line(caregiver_name: str, child_name: str, caregiver_role: str, presenting_complaint: str) -> str:
-    return f"Hello doctor, I'm {caregiver_name}, {child_name}'s {caregiver_role}."
+def build_opening_line(caregiver_name: str, child_name: str, caregiver_role: str, child_age: str, child_sex: str) -> str:
+    return (
+        f"Hello doctor, I'm {caregiver_name}, {child_name}'s {caregiver_role}. "
+        f"This is {child_name}, my {child_age} old {'son' if child_sex == 'male' else 'daughter'}."
+    )
 
 
-def adapt_context_age_text(original_context: str, child_age: str) -> str:
-    context = str(original_context or "").strip()
-    if not context:
-        return context
-
-    patterns = [
-        r"^(A|An)\s+[^,.]+?\s+(child\s+)?has\s+",
-        r"^(A|An)\s+[^,.]+?\s+(with|who has)\s+",
-    ]
-
-    for pattern in patterns:
-        match = re.match(pattern, context, flags=re.IGNORECASE)
-        if match:
-            remainder = context[match.end():].strip()
-            return f"A child aged {child_age} has {remainder}"
-
-    return re.sub(r"^(A|An)\s+[^,.]+", f"A child aged {child_age}", context, count=1)
-
-
-def apply_dynamic_case_variation(case_data: dict, resolved_age: str) -> dict:
+def apply_dynamic_case_variation(case_data: dict) -> dict:
     varied = copy.deepcopy(case_data)
 
-    diagnosis = extract_case_diagnosis(varied)
     child_sex = random.choice(["male", "female"])
+    case_age_months = int(varied.get("age_months", 24))
 
     caregiver_role = (
         random.choice(["mother", "father", "grandmother"])
-        if resolved_age in {"Neonate", "Infant"}
+        if case_age_months <= 12
         else random.choice(["mother", "father"])
     )
 
@@ -907,9 +908,15 @@ def apply_dynamic_case_variation(case_data: dict, resolved_age: str) -> dict:
         caregiver_name = random.choice(MALE_CAREGIVER_NAMES)
         caregiver_gender = "male"
 
+    while caregiver_name == child_name:
+        if caregiver_gender == "female":
+            caregiver_name = random.choice(FEMALE_CAREGIVER_NAMES)
+        else:
+            caregiver_name = random.choice(MALE_CAREGIVER_NAMES)
+
     varied["child_sex"] = child_sex
     varied["child_name"] = child_name
-    varied["child_age"] = generate_age_string(resolved_age)
+    varied["child_age"] = generate_case_consistent_age_string(case_age_months)
     varied["age_label"] = varied["child_age"]
     varied["caregiver_role"] = caregiver_role
     varied["caregiver_name"] = caregiver_name
@@ -919,21 +926,19 @@ def apply_dynamic_case_variation(case_data: dict, resolved_age: str) -> dict:
     varied["residence"] = random.choice(RESIDENCE_POOL)
     varied["birth_place"] = random.choice(BIRTH_PLACE_POOL)
     varied["household_structure"] = random.choice(HOUSEHOLD_POOL)
-    varied["school_or_daycare"] = SCHOOL_DAYCARE_POOL.get(resolved_age, "stays at home with family")
-
-    varied_presenting = build_presenting_complaint_variant(
-        diagnosis=diagnosis,
-        age_group=resolved_age,
-        original=varied.get("presenting_complaint", ""),
+    varied["school_or_daycare"] = SCHOOL_DAYCARE_POOL.get(
+        age_group_from_months(case_age_months),
+        "stays at home with family",
     )
-    varied["presenting_complaint"] = varied_presenting
-    varied["context"] = adapt_context_age_text(varied.get("context", ""), varied["child_age"])
-    varied["case_summary"] = varied["context"]
+
+    varied["presenting_complaint"] = build_presenting_complaint_variant(varied)
+    varied["case_summary"] = varied.get("context", "")
     varied["opening_line"] = build_opening_line(
         caregiver_name=varied["caregiver_name"],
         child_name=varied["child_name"],
         caregiver_role=varied["caregiver_role"],
-        presenting_complaint=varied_presenting,
+        child_age=varied["child_age"],
+        child_sex=varied["child_sex"],
     )
 
     return varied
@@ -2267,3 +2272,4 @@ if active_case and st.session_state.presentation_done:
                 mime="text/plain",
                 use_container_width=True,
             )
+
