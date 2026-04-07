@@ -2007,7 +2007,7 @@ if not active_case:
                     else:
                         resolved_age, resolved_system = resolve_random_selection("Random", "Random")
 
-                base_case_data = choose_case_with_history(
+                base_case_data = choose_case_with_age_and_history(
                     requested_system=resolved_system,
                     study_number=study_number,
                     avoid_recent_repeat=use_history_aware_random,
