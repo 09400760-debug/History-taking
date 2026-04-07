@@ -13,6 +13,8 @@ from openai import OpenAI
 
 from dynamic_rubric import (
     choose_case,
+    COMMON_SA_CASE_BANK,
+    _enrich_case,
     build_history_taking_system_prompt,
     build_assessor_system_prompt,
     build_assessor_schema,
@@ -458,35 +460,6 @@ def resolve_random_selection(selected_age: str, selected_system: str):
     return resolved_age, resolved_system
 
 
-def age_group_to_month_range(age_group: str) -> tuple[int, int]:
-    mapping = {
-        "Neonate": (0, 1),
-        "Infant": (2, 11),
-        "1-5 years": (12, 71),
-        "6-10 years": (72, 131),
-        "11-19 years": (132, 228),
-    }
-    return mapping.get(age_group, (0, 228))
-
-
-def age_group_from_months(age_months: int) -> str:
-    if age_months <= 1:
-        return "Neonate"
-    if age_months <= 11:
-        return "Infant"
-    if age_months <= 71:
-        return "1-5 years"
-    if age_months <= 131:
-        return "6-10 years"
-    return "11-19 years"
-
-
-def case_matches_age_group(case_data: dict, age_group: str) -> bool:
-    age_months = int(case_data.get("age_months", 0))
-    min_m, max_m = age_group_to_month_range(age_group)
-    return min_m <= age_months <= max_m
-
-
 def transcript_from_messages(messages):
     return "\n".join([f'{m["role"]}: {m["content"]}' for m in messages])
 
@@ -721,14 +694,63 @@ def choose_novel_random_targets(study_number: str, selected_age: str, selected_s
     return resolved_age, resolved_system
 
 
+def age_group_to_month_range(age_group: str) -> tuple[int, int]:
+    mapping = {
+        "Neonate": (0, 1),
+        "Infant": (2, 11),
+        "1-5 years": (12, 71),
+        "6-10 years": (72, 131),
+        "11-19 years": (132, 228),
+    }
+    return mapping.get(age_group, (0, 228))
+
+
+def age_group_from_months(age_months: int) -> str:
+    if age_months <= 1:
+        return "Neonate"
+    if age_months <= 11:
+        return "Infant"
+    if age_months <= 71:
+        return "1-5 years"
+    if age_months <= 131:
+        return "6-10 years"
+    return "11-19 years"
+
+
+def case_matches_age_group(case_data: dict, age_group: str) -> bool:
+    age_months = int(case_data.get("age_months", 0))
+    min_m, max_m = age_group_to_month_range(age_group)
+    return min_m <= age_months <= max_m
+
+
+def get_available_systems_for_age(age_group: str) -> list[str]:
+    if not age_group or age_group == "Random":
+        return [s for s in VISIBLE_SYSTEM_OPTIONS if s != "Random"]
+
+    systems = []
+    for case in COMMON_SA_CASE_BANK:
+        if case_matches_age_group(case, age_group):
+            system = str(case.get("system", "")).strip()
+            if system and system in VISIBLE_SYSTEM_OPTIONS and system not in systems:
+                systems.append(system)
+
+    ordered = [s for s in VISIBLE_SYSTEM_OPTIONS if s != "Random" and s in systems]
+    return ordered
+
+
+def get_recent_customized_sessions(study_number: str, limit: int = 8) -> list[dict]:
+    if not study_number or get_study_group(study_number) != CUSTOMIZED_GROUP:
+        return []
+    sessions = get_student_sessions(study_number)
+    return sessions[:limit]
+
+
 def choose_case_with_age_and_history(
     requested_system: str,
     requested_age_group: str,
     study_number: str | None = None,
     avoid_recent_repeat: bool = False,
 ) -> dict:
-    from dynamic_rubric import COMMON_SA_CASE_BANK, _enrich_case
-
     candidates = COMMON_SA_CASE_BANK[:]
 
     if requested_system and requested_system != "Random":
@@ -738,10 +760,7 @@ def choose_case_with_age_and_history(
         ]
 
     if requested_age_group and requested_age_group != "Random":
-        candidates = [
-            c for c in candidates
-            if case_matches_age_group(c, requested_age_group)
-        ]
+        candidates = [c for c in candidates if case_matches_age_group(c, requested_age_group)]
 
     if not candidates:
         candidates = COMMON_SA_CASE_BANK[:]
@@ -765,28 +784,23 @@ def choose_case_with_age_and_history(
         if filtered:
             candidates = filtered
 
-    chosen = random.choice(candidates)
-    return _enrich_case(chosen)
+    return _enrich_case(random.choice(candidates))
 
 
 def generate_case_consistent_age_string(age_months: int) -> str:
     if age_months <= 1:
         days = random.randint(2, 27)
         return f"{days} days"
-
     if 2 <= age_months <= 11:
         low = max(2, age_months - 2)
         high = min(11, age_months + 2)
         return f"{random.randint(low, high)} months"
-
     if 12 <= age_months <= 71:
         years = max(1, min(5, round(age_months / 12)))
         return f"{years} years"
-
     if 72 <= age_months <= 131:
         years = max(6, min(10, round(age_months / 12)))
         return f"{years} years"
-
     years = max(11, min(17, round(age_months / 12)))
     return f"{years} years"
 
@@ -803,18 +817,17 @@ def build_presenting_complaint_variant(case_data: dict) -> str:
                 "my baby is not pushing up and moving strongly like I expected",
                 "my baby feels weak and I am worried about the legs",
             ])
-        elif age_months < 36:
+        if age_months < 36:
             return random.choice([
                 "my child seems weak and the legs do not look right",
                 "my child is not standing well and the legs look bent",
                 "my child seems weak and the legs look bowed",
             ])
-        else:
-            return random.choice([
-                "my child has bowed legs and seems weak",
-                "my child is walking strangely and the legs look bent",
-                "my child seems weak and the legs look bowed",
-            ])
+        return random.choice([
+            "my child has bowed legs and seems weak",
+            "my child is walking strangely and the legs look bent",
+            "my child seems weak and the legs look bowed",
+        ])
 
     if "bronchiolitis" in diagnosis:
         return random.choice([
@@ -888,11 +901,12 @@ def apply_dynamic_case_variation(case_data: dict) -> dict:
     varied = copy.deepcopy(case_data)
 
     child_sex = random.choice(["male", "female"])
-    case_age_months = int(varied.get("age_months", 24))
+    age_months = int(varied.get("age_months", 24))
+    age_group = age_group_from_months(age_months)
 
     caregiver_role = (
         random.choice(["mother", "father", "grandmother"])
-        if case_age_months <= 12
+        if age_months <= 12
         else random.choice(["mother", "father"])
     )
 
@@ -909,14 +923,11 @@ def apply_dynamic_case_variation(case_data: dict) -> dict:
         caregiver_gender = "male"
 
     while caregiver_name == child_name:
-        if caregiver_gender == "female":
-            caregiver_name = random.choice(FEMALE_CAREGIVER_NAMES)
-        else:
-            caregiver_name = random.choice(MALE_CAREGIVER_NAMES)
+        caregiver_name = random.choice(FEMALE_CAREGIVER_NAMES if caregiver_gender == "female" else MALE_CAREGIVER_NAMES)
 
     varied["child_sex"] = child_sex
     varied["child_name"] = child_name
-    varied["child_age"] = generate_case_consistent_age_string(case_age_months)
+    varied["child_age"] = generate_case_consistent_age_string(age_months)
     varied["age_label"] = varied["child_age"]
     varied["caregiver_role"] = caregiver_role
     varied["caregiver_name"] = caregiver_name
@@ -926,10 +937,7 @@ def apply_dynamic_case_variation(case_data: dict) -> dict:
     varied["residence"] = random.choice(RESIDENCE_POOL)
     varied["birth_place"] = random.choice(BIRTH_PLACE_POOL)
     varied["household_structure"] = random.choice(HOUSEHOLD_POOL)
-    varied["school_or_daycare"] = SCHOOL_DAYCARE_POOL.get(
-        age_group_from_months(case_age_months),
-        "stays at home with family",
-    )
+    varied["school_or_daycare"] = SCHOOL_DAYCARE_POOL.get(age_group, "stays at home with family")
 
     varied["presenting_complaint"] = build_presenting_complaint_variant(varied)
     varied["case_summary"] = varied.get("context", "")
@@ -1937,42 +1945,52 @@ if not active_case:
 
         active_group = student_record["study_group"]
 
-        with st.form("configure_case_form"):
+        st.radio(
+            "Choose interaction mode",
+            VISIBLE_INTERACTION_MODES,
+            key="selected_mode",
+        )
+
+        if active_group == CUSTOMIZED_GROUP:
+            st.markdown("**Choose age group**")
             st.radio(
-                "Choose interaction mode",
-                VISIBLE_INTERACTION_MODES,
-                key="selected_mode",
+                "Choose age group",
+                VISIBLE_AGE_OPTIONS,
+                key="selected_age",
+                label_visibility="collapsed",
             )
 
-            if active_group == CUSTOMIZED_GROUP:
-                st.markdown("**Choose age group**")
-                st.radio(
-                    "Choose age group",
-                    VISIBLE_AGE_OPTIONS,
-                    key="selected_age",
-                    label_visibility="collapsed",
-                )
+            available_systems = get_available_systems_for_age(st.session_state.selected_age)
+            if not available_systems:
+                st.warning("No systems are currently available for that age selection.")
+                st.session_state.selected_system = "Random"
+                start_case = False
+            else:
+                if st.session_state.selected_system not in available_systems:
+                    st.session_state.selected_system = available_systems[0]
 
                 st.markdown("**Choose system**")
                 st.radio(
                     "Choose system",
-                    VISIBLE_SYSTEM_OPTIONS,
+                    available_systems,
                     key="selected_system",
                     label_visibility="collapsed",
                 )
-                st.session_state.non_custom_instruction = ""
-            else:
-                st.info("A random case will be generated for this study arm.")
-                st.session_state.selected_age = "Random"
-                st.session_state.selected_system = "Random"
-                st.text_input(
-                    "Optional instruction",
-                    key="non_custom_instruction",
-                    help="You can ask the chatbot to switch systems or caregiver, should you wish.",
-                )
-                st.caption("You can ask the chatbot to switch systems or caregiver, should you wish.")
+                st.caption("Systems are filtered automatically so that only age-appropriate case groups are shown.")
+                start_case = st.button("Start new case", use_container_width=True)
 
-            start_case = st.form_submit_button("Start new case", use_container_width=True)
+            st.session_state.non_custom_instruction = ""
+        else:
+            st.info("A random case will be generated for this study arm.")
+            st.session_state.selected_age = "Random"
+            st.session_state.selected_system = "Random"
+            st.text_input(
+                "Optional instruction",
+                key="non_custom_instruction",
+                help="You can ask the chatbot to switch systems or caregiver, should you wish.",
+            )
+            st.caption("You can ask the chatbot to switch systems or caregiver, should you wish.")
+            start_case = st.button("Start new case", use_container_width=True)
 
         if active_group == CUSTOMIZED_GROUP:
             render_student_progress()
@@ -1990,29 +2008,22 @@ if not active_case:
                 selected_system = st.session_state.selected_system
                 non_custom_instruction = st.session_state.non_custom_instruction
 
-                use_history_aware_random = (
-                    study_group == CUSTOMIZED_GROUP
-                    and (selected_age == "Random" or selected_system == "Random")
-                )
-
-                if use_history_aware_random:
-                    resolved_age, resolved_system = choose_novel_random_targets(
-                        study_number,
-                        selected_age,
-                        selected_system,
-                    )
+                if study_group == CUSTOMIZED_GROUP:
+                    requested_age_group = selected_age
+                    requested_system = selected_system
                 else:
-                    if study_group == CUSTOMIZED_GROUP:
-                        resolved_age, resolved_system = resolve_random_selection(selected_age, selected_system)
-                    else:
-                        resolved_age, resolved_system = resolve_random_selection("Random", "Random")
+                    requested_age_group = "Random"
+                    requested_system = random.choice(RANDOM_SYSTEM_POOL)
 
                 base_case_data = choose_case_with_age_and_history(
-                    requested_system=resolved_system,
+                    requested_system=requested_system,
+                    requested_age_group=requested_age_group,
                     study_number=study_number,
-                    avoid_recent_repeat=use_history_aware_random,
+                    avoid_recent_repeat=(study_group == CUSTOMIZED_GROUP),
                 )
-                case_data = apply_dynamic_case_variation(base_case_data, resolved_age)
+                case_data = apply_dynamic_case_variation(base_case_data)
+                resolved_system = base_case_data.get("system")
+                resolved_age = age_group_from_months(int(base_case_data.get("age_months", 24)))
 
                 if study_group == CUSTOMIZED_GROUP:
                     caregiver_system_prompt = build_history_taking_system_prompt(case_data)
@@ -2272,4 +2283,5 @@ if active_case and st.session_state.presentation_done:
                 mime="text/plain",
                 use_container_width=True,
             )
+
 
