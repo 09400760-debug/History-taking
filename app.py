@@ -177,6 +177,11 @@ GRADE_LABELS = {
 CUSTOMIZED_GROUP = "customized"
 NON_CUSTOMIZED_GROUP = "non_customized"
 
+# NOTE:
+# 'mode' is legacy state.
+# 'text_phase' is the active conversation controller.
+# Future refactor should remove 'mode'.
+
 # =========================
 # Dynamic variation pools
 # =========================
@@ -753,13 +758,6 @@ def get_available_systems_for_age(age_group: str) -> list[str]:
     return ordered
 
 
-def get_recent_customized_sessions(study_number: str, limit: int = 8) -> list[dict]:
-    if not study_number or get_study_group(study_number) != CUSTOMIZED_GROUP:
-        return []
-    sessions = get_student_sessions(study_number)
-    return sessions[:limit]
-
-
 def choose_case_with_age_and_history(
     requested_system: str,
     requested_age_group: str,
@@ -972,7 +970,6 @@ def build_non_customized_caregiver_prompt(case_data: dict, optional_instruction:
 You are role-playing a realistic caregiver in a paediatric history-taking practice conversation.
 
 This is a standard non-customized practice chatbot.
-Do not behave like an assessor, tutor, examiner, or preceptor.
 
 KNOWN FACTS:
 - Caregiver name: {case_data.get("caregiver_name")}
@@ -994,18 +991,18 @@ RULES:
 - Start naturally with this opening line:
   "{case_data.get("opening_line")}"
 - Do not repeat the full opening line later unless directly asked who you are.
-- Do not ask the student any questions except when you genuinely need clarification of jargon or an unclear question.
-- Do not guide the student.
-- Do not provide feedback unless explicitly asked to give feedback at the end.
-- Do not mention rubrics, scoring, grades, diagnosis, or differentials unless the student directly asks what you were told.
 - Answer naturally, briefly, and realistically.
-- Do not volunteer the whole history at once.
 - Only reveal information when asked.
-- Do not volunteer extra symptoms or extra timelines unless the student asked about them.
+- Do not volunteer the whole history, extra symptoms, or extra timelines unless asked.
 - Use simple caregiver language, not textbook language.
 - You are a lay caregiver, not medically trained unless explicitly stated.
-- Do NOT spontaneously use medical jargon or technical labels.
-- Do NOT use terms such as:
+- Do not guide, assess, or teach the student.
+- Do not move into preceptor mode.
+- Do not provide feedback unless explicitly asked at the end.
+- Do not mention diagnosis, scoring, grades, rubrics, or differentials unless directly asked.
+- Do not ask the student questions except when you genuinely need clarification of jargon or an unclear question.
+- Do not spontaneously use medical jargon or technical labels.
+- Do not use terms such as:
   "dysentery", "raised intracranial pressure", "bronchiolitis", "meningitis",
   "pyelonephritis", "urinary tract infection", "nephrotic syndrome",
   "congenital heart disease", "cyanosis", "aspiration", "febrile seizure"
@@ -1020,7 +1017,6 @@ RULES:
   "Can you explain that more simply?"
 - Do not repeatedly ask "what else do you want to know?"
 - If the student's wording is vague or unclear, ask briefly for clarification.
-- Do not move into preceptor mode.
 - If the student says they are done, ask:
   "{NON_CUSTOMIZED_FEEDBACK_QUESTION}"
 - If they say yes, give brief general feedback on the interaction like a normal helpful chatbot.
@@ -1266,7 +1262,7 @@ def save_session_to_db():
     if st.session_state.study_group == CUSTOMIZED_GROUP:
         save_stage = "assessment" if assessment else "transcript"
         existing_stage = st.session_state.get("db_save_stage", "none")
-        if existing_stage == "assessment" or existing_stage == save_stage:
+        if existing_stage == "assessment":
             return
 
         if assessment:
@@ -1700,7 +1696,7 @@ def run_text_state_machine(user_text: str):
             return TEXT_PRECEPTOR_INVITE
 
         if looks_like_greeting_only(user_text):
-            return "Good afternoon, doctor." if "afternoon" in normalize_text(user_text) else "Hello, doctor."
+            return "Hello, doctor."
 
         return caregiver_reply_from_messages(st.session_state.messages, st.session_state.caregiver_system_prompt)
 
@@ -1898,7 +1894,6 @@ st.info(WELCOME_TEXT)
 active_case = bool(st.session_state.get("case_started", False) and st.session_state.case_data is not None)
 
 if not active_case and st.session_state.case_data is not None:
-    # Clear stale case payload if setup should be showing.
     st.session_state.case_data = None
     st.session_state.messages = []
     st.session_state.current_session_id = None
@@ -2116,7 +2111,7 @@ elif isinstance(status_value, str) and status_value.strip():
 # Study arm display
 # =========================
 if active_case:
-    arm_text = 'Customized bot' if st.session_state.study_group == CUSTOMIZED_GROUP else 'Non-customized bot'
+    arm_text = "Customized bot" if st.session_state.study_group == CUSTOMIZED_GROUP else "Non-customized bot"
     st.caption(
         f"Student email: {st.session_state.student_email or 'Not recorded'} | Study number: {st.session_state.study_number or 'Not recorded'} | Study arm: {arm_text}"
     )
@@ -2263,8 +2258,6 @@ if active_case and st.session_state.presentation_done and st.session_state.messa
         mime="text/plain",
         use_container_width=True,
     )
-
-
 
 if active_case or st.session_state.messages:
     if st.button("Start another case", use_container_width=True):
