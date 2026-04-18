@@ -178,9 +178,8 @@ CUSTOMIZED_GROUP = "customized"
 NON_CUSTOMIZED_GROUP = "non_customized"
 
 # NOTE:
-# 'mode' is legacy state.
-# 'text_phase' is the active conversation controller.
-# Future refactor should remove 'mode'.
+# 'mode' is retained mainly for compatibility with existing voice/import UI logic.
+# 'text_phase' is the main controller for text conversation flow.
 
 # =========================
 # Dynamic variation pools
@@ -1456,6 +1455,32 @@ def set_status(level: str, message: str):
     st.session_state.last_voice_import_status = {"level": level, "message": message}
 
 
+def set_text_phase(phase: str):
+    st.session_state.text_phase = phase
+    if phase == "post_presentation":
+        st.session_state.presentation_done = True
+        st.session_state.mode = "post_presentation"
+    else:
+        st.session_state.mode = "caregiver"
+
+
+def move_to_post_presentation():
+    set_text_phase("post_presentation")
+    if not st.session_state.case_ended_at:
+        st.session_state.case_ended_at = now_iso()
+
+
+def return_to_caregiver_phase():
+    set_text_phase("caregiver")
+
+
+def ask_caregiver_again():
+    return caregiver_reply_from_messages(
+        st.session_state.messages,
+        st.session_state.caregiver_system_prompt,
+    )
+
+
 def reset_case_state():
     st.session_state.messages = []
     st.session_state.case_data = None
@@ -1539,13 +1564,12 @@ def apply_imported_messages(imported_obj, session_id=None, status_message="Voice
         st.session_state.current_session_id = session_id
 
     if st.session_state.study_group == NON_CUSTOMIZED_GROUP:
-        st.session_state.presentation_done = True
-        st.session_state.mode = "post_presentation"
-        st.session_state.text_phase = "post_presentation"
+        move_to_post_presentation()
     else:
-        st.session_state.presentation_done = looks_like_voice_session_complete(imported_messages)
-        st.session_state.mode = "post_presentation" if st.session_state.presentation_done else "caregiver"
-        st.session_state.text_phase = "post_presentation" if st.session_state.presentation_done else "caregiver"
+        if looks_like_voice_session_complete(imported_messages):
+            move_to_post_presentation()
+        else:
+            return_to_caregiver_phase()
 
     st.session_state.active_mode = "Realtime voice"
     set_status("success", status_message)
@@ -1655,68 +1679,59 @@ def render_assessment_json(data: dict, detailed: bool = False):
         st.write(overall)
 
 
-def run_text_state_machine(user_text: str):
-    if st.session_state.study_group == NON_CUSTOMIZED_GROUP:
-        phase = st.session_state.text_phase
-
-        if phase == "caregiver":
-            if looks_like_finished_history(user_text):
-                st.session_state.text_phase = "await_non_custom_feedback_choice"
-                return NON_CUSTOMIZED_FEEDBACK_QUESTION
-
-            if looks_like_greeting_only(user_text):
-                return "Hello, doctor."
-
-            return caregiver_reply_from_messages(st.session_state.messages, st.session_state.caregiver_system_prompt)
-
-        if phase == "await_non_custom_feedback_choice":
-            if is_yes(user_text):
-                st.session_state.text_phase = "post_presentation"
-                st.session_state.presentation_done = True
-                st.session_state.mode = "post_presentation"
-                st.session_state.case_ended_at = now_iso()
-                st.session_state.generic_feedback = generate_generic_feedback(st.session_state.messages)
-                return "Here is some general feedback on the interaction."
-            if is_no(user_text):
-                st.session_state.text_phase = "post_presentation"
-                st.session_state.presentation_done = True
-                st.session_state.mode = "post_presentation"
-                st.session_state.case_ended_at = now_iso()
-                st.session_state.generic_feedback = "No feedback selected for this session."
-                return "Okay. Session complete."
-            return "Please answer yes or no."
-
-        return "Conversation complete."
-
+def run_non_customized_text_flow(user_text: str):
     phase = st.session_state.text_phase
 
     if phase == "caregiver":
         if looks_like_finished_history(user_text):
-            st.session_state.text_phase = "await_preceptor_choice"
+            set_text_phase("await_non_custom_feedback_choice")
+            return NON_CUSTOMIZED_FEEDBACK_QUESTION
+
+        if looks_like_greeting_only(user_text):
+            return "Hello, doctor."
+
+        return ask_caregiver_again()
+
+    if phase == "await_non_custom_feedback_choice":
+        if is_yes(user_text):
+            move_to_post_presentation()
+            st.session_state.generic_feedback = generate_generic_feedback(st.session_state.messages)
+            return "Here is some general feedback on the interaction."
+        if is_no(user_text):
+            move_to_post_presentation()
+            st.session_state.generic_feedback = "No feedback selected for this session."
+            return "Okay. Session complete."
+        return "Please answer yes or no."
+
+    return "Conversation complete."
+
+
+def run_customized_text_flow(user_text: str):
+    phase = st.session_state.text_phase
+
+    if phase == "caregiver":
+        if looks_like_finished_history(user_text):
+            set_text_phase("await_preceptor_choice")
             return TEXT_PRECEPTOR_INVITE
 
         if looks_like_greeting_only(user_text):
             return "Hello, doctor."
 
-        return caregiver_reply_from_messages(st.session_state.messages, st.session_state.caregiver_system_prompt)
+        return ask_caregiver_again()
 
     if phase == "await_preceptor_choice":
         if is_yes(user_text):
-            st.session_state.text_phase = "await_summary_answer"
+            set_text_phase("await_summary_answer")
             return TEXT_SUMMARY_QUESTION
         if is_no(user_text):
-            st.session_state.text_phase = "caregiver"
+            return_to_caregiver_phase()
             return "Okay, we can continue with the history."
         return "Please answer yes or no."
 
     if phase == "await_summary_answer":
         if looks_like_history_question(user_text):
-            st.session_state.text_phase = "caregiver"
-            caregiver_text = caregiver_reply_from_messages(
-                st.session_state.messages,
-                st.session_state.caregiver_system_prompt,
-            )
-            return caregiver_text
+            return_to_caregiver_phase()
+            return ask_caregiver_again()
 
         if not looks_like_summary_response(user_text):
             return (
@@ -1724,17 +1739,13 @@ def run_text_state_machine(user_text: str):
                 "Please summarise the case briefly in one or two sentences, or continue the history first."
             )
 
-        st.session_state.text_phase = "await_diagnosis_answer"
+        set_text_phase("await_diagnosis_answer")
         return TEXT_DIAGNOSIS_QUESTION
 
     if phase == "await_diagnosis_answer":
         if looks_like_history_question(user_text):
-            st.session_state.text_phase = "caregiver"
-            caregiver_text = caregiver_reply_from_messages(
-                st.session_state.messages,
-                st.session_state.caregiver_system_prompt,
-            )
-            return caregiver_text
+            return_to_caregiver_phase()
+            return ask_caregiver_again()
 
         if not looks_like_diagnosis_response(user_text):
             return (
@@ -1742,47 +1753,42 @@ def run_text_state_machine(user_text: str):
                 "Please state your single most likely diagnosis, or return to the history if you need more information."
             )
 
-        st.session_state.text_phase = "await_differentials_answer"
+        set_text_phase("await_differentials_answer")
         return TEXT_DIFFERENTIALS_QUESTION
 
     if phase == "await_differentials_answer":
         if looks_like_history_question(user_text):
-            st.session_state.text_phase = "caregiver"
-            caregiver_text = caregiver_reply_from_messages(
-                st.session_state.messages,
-                st.session_state.caregiver_system_prompt,
-            )
-            return caregiver_text
+            return_to_caregiver_phase()
+            return ask_caregiver_again()
 
         if not looks_like_differentials_response(user_text):
             return (
                 "Please list your main differential diagnoses, or continue the history if you need more information."
             )
 
-        st.session_state.text_phase = "await_final_confirmation"
+        set_text_phase("await_final_confirmation")
         return TEXT_END_CONFIRM
 
     if phase == "await_final_confirmation":
         if looks_like_history_question(user_text):
-            st.session_state.text_phase = "caregiver"
-            caregiver_text = caregiver_reply_from_messages(
-                st.session_state.messages,
-                st.session_state.caregiver_system_prompt,
-            )
-            return caregiver_text
+            return_to_caregiver_phase()
+            return ask_caregiver_again()
 
         if is_yes(user_text):
-            st.session_state.text_phase = "post_presentation"
-            st.session_state.presentation_done = True
-            st.session_state.mode = "post_presentation"
-            st.session_state.case_ended_at = now_iso()
+            move_to_post_presentation()
             return TEXT_FINAL_LINE
         if is_no(user_text):
-            st.session_state.text_phase = "await_differentials_answer"
+            set_text_phase("await_differentials_answer")
             return "Okay, please continue with your differential diagnoses."
         return "Please answer yes or no."
 
     return "Conversation complete."
+
+
+def run_text_state_machine(user_text: str):
+    if st.session_state.study_group == NON_CUSTOMIZED_GROUP:
+        return run_non_customized_text_flow(user_text)
+    return run_customized_text_flow(user_text)
 
 
 # =========================
@@ -1871,9 +1877,7 @@ if (
                 if not st.session_state.case_ended_at:
                     st.session_state.case_ended_at = now_iso()
                 save_session_to_db()
-                st.session_state.presentation_done = True
-                st.session_state.mode = "post_presentation"
-                st.session_state.text_phase = "post_presentation"
+                move_to_post_presentation()
                 st.session_state.active_mode = "Realtime voice"
         else:
             if not st.session_state.case_ended_at:
@@ -2127,7 +2131,7 @@ if active_case and st.session_state.study_group == CUSTOMIZED_GROUP and st.sessi
 # =========================
 show_live_transcript = (
     active_case
-    and not st.session_state.presentation_done
+    and st.session_state.text_phase != "post_presentation"
     and st.session_state.active_mode == "Text only"
 )
 
@@ -2144,7 +2148,7 @@ if (
     active_case
     and st.session_state.active_mode == "Text only"
     and st.session_state.study_group == NON_CUSTOMIZED_GROUP
-    and not st.session_state.presentation_done
+    and st.session_state.text_phase != "post_presentation"
 ):
     st.caption("When you are finished, type that you are done. The chatbot will then ask if you would like feedback.")
 
@@ -2154,7 +2158,7 @@ if (
 if (
     active_case
     and st.session_state.active_mode == "Text only"
-    and st.session_state.mode != "post_presentation"
+    and st.session_state.text_phase != "post_presentation"
 ):
     if prompt := st.chat_input("Type your response…"):
         st.session_state.messages.append({"role": "user", "content": prompt})
@@ -2184,7 +2188,7 @@ if (
 
 elif not st.session_state.case_data and not st.session_state.messages and not st.session_state.current_session_id:
     st.info("Set up and start a case to begin.")
-elif st.session_state.mode == "post_presentation":
+elif st.session_state.text_phase == "post_presentation":
     st.info("Conversation complete.")
 elif st.session_state.messages and not st.session_state.case_data:
     st.info("Imported voice transcript loaded.")
